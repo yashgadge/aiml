@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """Offline menu and lightweight explanation helper for the AIML practical notebooks.
 
 Prerequisite: Python 3.8+. Install the libraries required by the selected notebook
