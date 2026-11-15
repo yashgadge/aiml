@@ -6,11 +6,6 @@ if (( BASH_VERSINFO[0] < 4 )); then
     exit 1
 fi
 
-: OS_OFFLINE_ARCHIVE_START
-offline_arch=''
-offline_binary() { return 1; }
-: OS_OFFLINE_ARCHIVE_END
-
 titles=(
     '' 'Address book (Bash)' 'Processes and sorting' 'Producer-consumer'
     'Dining philosophers' "Banker's algorithm" 'Named pipes (FIFO)' 'Unnamed pipes'
@@ -1093,31 +1088,41 @@ END_practical8_c
     esac
 }
 
+print_install_command() {
+    local tool package
+    local -a packages=()
+    for tool in "$@"; do
+        case $tool in
+            compiler) package=build-essential ;;
+            awk) package=mawk ;;
+            cmp) package=diffutils ;;
+            bash|grep|sed) package=$tool ;;
+            *) package=coreutils ;;
+        esac
+        if [[ " ${packages[*]} " != *" $package "* ]]; then
+            packages+=("$package")
+        fi
+    done
+    printf '  sudo apt install'
+    printf ' %s' "${packages[@]}"
+    printf '\n'
+}
+
 run_native() (
     number=$1
     mode=$2
-    pack_destination=${3:-}
-    use_offline=0
     required=(mktemp rm rmdir chmod)
     compiler=''
     case "$number" in
-        1) required+=(bash awk cat mv); packages='bash mawk coreutils' ;;
-        6) required+=(mkfifo); packages='coreutils' ;;
-        *) packages='coreutils' ;;
+        1) required+=(bash awk cat mv) ;;
+        6) required+=(mkfifo) ;;
     esac
     if [[ $mode == sample ]]; then required+=(timeout); fi
-    if [[ $mode == pack ]]; then
-        [[ -n $pack_destination && -d $pack_destination ]] || exit 2
-        required+=(mv)
-    elif [[ $number != 1 && -n $offline_arch && $offline_arch == "$(uname -m)" ]]; then
-        use_offline=1
-        required+=(base64 gzip)
-    fi
     missing=()
     for tool in "${required[@]}"; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
-    if [[ $number != 1 ]] && (( ! use_offline )); then
+    if [[ $number != 1 ]]; then
         for candidate in gcc cc clang /usr/bin/gcc-[0-9]*; do
             if command -v "$candidate" >/dev/null 2>&1; then
                 compiler=$candidate
@@ -1125,20 +1130,13 @@ run_native() (
             fi
         done
         if [[ -z $compiler ]]; then
-            printf 'No C compiler found (GCC, cc or Clang).\n' >&2
-            if [[ -n $offline_arch ]]; then
-                printf 'This offline copy targets %s. This PC is %s.\n' "$offline_arch" "$(uname -m)" >&2
-            fi
-            printf 'Build os-offline.sh on a compatible Ubuntu PC with a compiler. Choose B in the practical list.\n' >&2
-            printf 'For compiler installation options, choose D and enter compiler.\n' >&2
-            exit 127
+            missing+=(compiler)
         fi
     fi
     if (( ${#missing[@]} )); then
-        printf 'Missing Linux tools: %s\n' "${missing[*]}" >&2
-        printf 'Offline, with all packages cached: sudo apt-get --no-download --no-remove install %s\n' "$packages" >&2
-        printf 'If the cache is empty, use a prepared lab PC or matching packages from the lab admin.\n' >&2
-        printf 'Later, with internet and permission: sudo apt-get update && sudo apt-get install %s\n' "$packages" >&2
+        printf 'Missing: %s\n' "${missing[*]/compiler/C compiler}" >&2
+        print_install_command "${missing[@]}" >&2
+        printf 'Then run the practical again.\n' >&2
         exit 127
     fi
 
@@ -1200,8 +1198,7 @@ run_native() (
             printf '%s\n' "$output" >&2
             case "$output" in
                 *'cannot find'*|*'stdio.h: No such file'*|*'pthread.h: No such file'*|*'cannot execute'*)
-                    echo 'The compiler, headers or linker are incomplete. Ubuntu: sudo apt install build-essential' >&2
-                    echo 'Offline cached install: sudo apt-get --no-download --no-remove install build-essential' >&2 ;;
+                    print_install_command compiler >&2 ;;
                 *'No space left on device'*)
                     echo 'The build disk is full. Run df -h /tmp and free space or use another lab PC.' >&2 ;;
                 *'Permission denied'*)
@@ -1214,33 +1211,12 @@ run_native() (
         [[ -z $output ]] || printf '%s\n' "$output" >&2
     }
 
-    prepare_binary() {
-        local target=$1 source=$2
-        shift 2
-        if (( use_offline )); then
-            if ! offline_binary "${source%.c}" > "$scratch/$target" ||
-                [[ ! -s $scratch/$target ]] || ! chmod u+x "$scratch/$target"; then
-                printf 'Could not unpack %s. Use the original offline copy or rebuild it on a supported Ubuntu PC.\n' "$source" >&2
-                return 65
-            fi
-        elif [[ $mode == pack ]]; then
-            compile "$target" "$source" "$@" -static -s &&
-                mv -- "$scratch/$target" "$pack_destination/${source%.c}"
-        else
-            compile "$target" "$source" "$@"
-        fi
-    }
-
     case "$number" in
         1) bash -n practical1.sh || exit 65 ;;
-        3|4) prepare_binary run "practical$number.c" -pthread || exit $? ;;
-        6) prepare_binary process1 process1.c && prepare_binary process2 process2.c || exit $? ;;
-        *) prepare_binary run "practical$number.c" || exit $? ;;
+        3|4) compile run "practical$number.c" -pthread || exit $? ;;
+        6) compile process1 process1.c && compile process2 process2.c || exit $? ;;
+        *) compile run "practical$number.c" || exit $? ;;
     esac
-    if [[ $mode == pack ]]; then exit 0; fi
-    if (( use_offline )) && [[ $mode != sample ]]; then
-        printf 'Using the bundled Linux executable (%s).\n' "$offline_arch"
-    fi
     if [[ $mode == check ]]; then
         echo 'Required commands found and source syntax/build check passed.'
         exit 0
@@ -2578,15 +2554,9 @@ END_WRITE_RECOVERY_1
             ;;
         gcc)
             cat <<'END_WRITE_RECOVERY_2'
-Find a Linux compiler: command -v gcc cc clang; gcc --version
-To run C practicals without a compiler on the lab PC, choose B on a compatible
-Ubuntu PC that already has a compiler. Bring the tested os-offline.sh it creates.
-Offline, with the necessary packages cached:
-  sudo apt-get --no-download --no-remove install build-essential
-If your lab supplied all the matching .deb files, open that package folder:
-  sudo apt-get --no-download --no-remove install ./*.deb
-If headers or dependencies are missing from both places, use a prepared Ubuntu PC.
-Online later: sudo apt-get update && sudo apt-get install build-essential
+Install the C compiler and build tools on Ubuntu:
+  sudo apt install build-essential
+Then run the practical again.
 END_WRITE_RECOVERY_2
             ;;
         files)
@@ -4160,7 +4130,7 @@ study_menu() {
 
 error_help() {
     local reply query topic
-    printf '\nOffline error help\n  Enter ubuntu, compiler, files, encoding, fifo, or a practical number.\n'
+    printf '\nError help\n  Enter ubuntu, compiler, files, encoding, fifo, or a practical number.\n'
     printf '  You can also paste an error. Use paste for several lines.\n'
     read_answer 'Topic or error (0 = back) > ' || return
     [[ $reply != 0 ]] || return
@@ -4196,7 +4166,8 @@ self_test() (
     local tool
     for tool in timeout grep cmp awk sed; do
         if ! command -v "$tool" >/dev/null; then
-            printf 'The full test needs %s. Try each practical from Run a practical on this PC.\n' "$tool" >&2
+            printf 'Missing: %s\n' "$tool" >&2
+            print_install_command "$tool" >&2
             return 1
         fi
     done
@@ -4284,98 +4255,17 @@ self_test() (
     fi
 )
 
-build_offline() (
-    local destination=$PWD/os-offline.sh arch tool work number member headers serial=2
-    local -a members=(practical2 practical3 practical4 practical5 process1 process2 practical7 practical8)
-    if [[ $(uname -s) != Linux ]]; then
-        printf 'Build the offline copy on an Ubuntu PC with a C compiler.\n' >&2
-        return 1
-    fi
-    for tool in awk base64 gzip mv readelf; do
-        if ! command -v "$tool" >/dev/null; then
-            printf 'The build PC needs %s. Use an Ubuntu PC with the full build-essential toolchain.\n' "$tool" >&2
-            return 1
-        fi
-    done
-    arch=$(uname -m) || return 1
-    while [[ -e $destination || -L $destination ]]; do
-        destination=$PWD/os-offline-$serial.sh
-        ((serial += 1))
-    done
-    work=$(mktemp -d -- "$PWD/.os-offline-build.XXXXXXXX") || return 1
-    trap 'for member in "${members[@]}" "${sources[@]}" payload.sh result.sh; do
-        rm -f -- "$work/$member"
-    done
-    rmdir -- "$work"' EXIT
-    trap 'exit 130' INT
-    cd -- "$work" || return 1
-    set -o pipefail
-
-    printf '\nBuilding offline copy for Linux %s...\n' "$arch"
-    for number in {2..8}; do
-        prepare_sources "$number" && run_native "$number" pack "$work" || {
-            printf 'Build stopped at Practical %s. Check the compiler message above.\n' "$number" >&2
-            return 1
-        }
-    done
-    for member in "${members[@]}"; do
-        headers=$(LC_ALL=C readelf -l "$member") || return 1
-        if [[ $headers == *INTERP* ]]; then
-            printf '%s requires a dynamic linker. The offline copy was not published.\n' "$member" >&2
-            return 1
-        fi
-    done
-
-    {
-        printf 'offline_arch=%q\n' "$arch"
-        printf 'offline_binary() (\n    set -o pipefail\n    case $1 in\n'
-        for member in "${members[@]}"; do
-            printf "        %s)\n            base64 -d <<'OS_BINARY_%s' | gzip -dc\n" "$member" "$member"
-            gzip -c -- "$member" | base64 || return 1
-            printf 'OS_BINARY_%s\n            ;;\n' "$member"
-        done
-        printf '        *) return 1 ;;\n    esac\n)\n'
-    } > payload.sh || return 1
-
-    OS_ARCHIVE_FILE=$work/payload.sh awk '
-        BEGIN { archive = ENVIRON["OS_ARCHIVE_FILE"] }
-        $0 == ": OS_OFFLINE_ARCHIVE_START" {
-            print
-            while ((getline line < archive) > 0) print line
-            close(archive)
-            skip = 1
-            next
-        }
-        $0 == ": OS_OFFLINE_ARCHIVE_END" { skip = 0 }
-        !skip { print }
-    ' "$script_path" > result.sh || return 1
-    "$BASH" -n result.sh || return 1
-    printf '\nTesting the bundled programs before saving the offline copy:\n'
-    "$BASH" result.sh --self-test || {
-        printf 'The offline copy failed its checks and was not published.\n' >&2
-        return 1
-    }
-    chmod u+x result.sh || return 1
-    mv -nT -- result.sh "$destination" && [[ ! -e result.sh ]] || {
-        printf 'Could not publish the offline copy at %s.\n' "$destination" >&2
-        return 1
-    }
-    printf '\nSaved %s\n' "$destination"
-    printf 'Carry this one file. It runs on compatible %s Ubuntu PCs without a compiler.\n' "$arch"
-)
-
 run_menu() {
     local reply number mode
     while :; do
         show_practicals 'Run a practical'
-        printf '\n  [0] Back   [D] Error help   [T] Test all\n  [2Z] Zombie demo   [2O] Orphan demo   [B] Build offline copy\n'
+        printf '\n  [0] Back   [D] Error help   [T] Test all\n  [2Z] Zombie demo   [2O] Orphan demo\n'
         read_answer 'Choose > ' || return
         mode=normal
         case ${reply,,} in
             0) return ;;
             d) error_help; continue ;;
             t) self_test; return ;;
-            b) build_offline; return ;;
             2z) number=2; mode=zombie ;;
             2o) number=2; mode=orphan ;;
             [1-8]) number=$reply ;;
@@ -4415,7 +4305,6 @@ OS Practicals Assistant for Ubuntu. Run the file with Bash to open the menu.
   --paper NUMBER           Print the paper write-up.
   --here NUMBER [MODE]     Run in this terminal explicitly.
   --self-test              Check all eight on Ubuntu.
-  --build-offline          Build and test an offline copy on an Ubuntu PC with a compiler.
   NUMBER [MODE]            Open a practical in a separate terminal.
 MODE is zombie or orphan for Practical 2.
 USAGE
@@ -4443,7 +4332,6 @@ case ${1:-} in
     --paper)
         if [[ ${2:-} =~ ^[1-8]$ ]]; then write_paper "$2"; else usage; exit 2; fi ;;
     --self-test) self_test ;;
-    --build-offline) build_offline ;;
     --view)
         if [[ ! ${2:-} =~ ^[1-8]$ ]]; then exit 2; fi
         view_saved_source "$2" edit ;;
