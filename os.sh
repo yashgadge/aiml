@@ -4145,64 +4145,101 @@ error_help() {
 
 
 self_test() (
-    local folder number status output data mode
+    local folder number status passed=0
+    local -a failed=()
     if [[ $(uname -s) != Linux ]]; then
         printf 'Run the full test on the Ubuntu lab PC.\n'
         return 1
     fi
-    if ! command -v timeout >/dev/null || ! command -v grep >/dev/null; then
-        printf 'The full test needs timeout and grep. Try each practical manually on this PC.\n' >&2
-        return 1
-    fi
+    local tool
+    for tool in timeout grep cmp awk sed; do
+        if ! command -v "$tool" >/dev/null; then
+            printf 'The full test needs %s. Try each practical from Run a practical on this PC.\n' "$tool" >&2
+            return 1
+        fi
+    done
     folder=$(mktemp -d -- /tmp/os-practicals-test.XXXXXXXX) || return 1
-    trap 'for file in "${sources[@]}" addressbook.txt report.txt sample.txt input.txt output.txt; do
+    trap 'for file in "${sources[@]}" addressbook.txt report.txt "sample with spaces.txt" input.txt output.txt; do
         rm -f -- "$folder/$file"
     done
     rmdir -- "$folder"' EXIT
     trap 'exit 130' INT
     cd -- "$folder" || return 1
-    for number in {1..8}; do
-        prepare_sources "$number" || return 1
-        mode=normal
-        case $number in
-            1) data=$'1\n3\nLab User\n1234\nPune\n2\n6\n' ;;
-            2) data=$'6\n2 9 7 5 6 1\n' ;;
-            3|5) data='' ;;
-            4) data=''; mode=sample ;;
-            6) data=$'Hello world! This is a FIFO full-duplex test.\nexit\n' ;;
-            7)
-                printf 'Hello from a pipe.\n' > sample.txt
-                data=$'sample.txt\n' ;;
-            8) data=$'8\n25 65 43 98 57 89 102 10\n57\n199\n' ;;
-        esac
-        printf '%s' "$data" > input.txt
+
+    run_sample() {
+        local input=$1 mode=${2:-normal} expected=${3:-0}
+        printf '%s' "$input" > input.txt || return 1
         status=0
-        timeout 40 "$BASH" "$script_path" --native "$number" "$mode" < input.txt > output.txt 2>&1 || status=$?
-        if { [[ $number == 4 ]] && (( status != 124 )); } ||
-            { [[ $number != 4 ]] && (( status != 0 )); }; then
-            printf '\nFAIL %s (status %s)\n' "$number" "$status"
-            cat output.txt
-            return 1
-        fi
+        timeout -k 3 40 "$BASH" "$script_path" --native "$number" "$mode" < input.txt > output.txt 2>&1 || status=$?
+        [[ $status == "$expected" ]]
+    }
+
+    check_sample() {
+        local produced consumed output
         case $number in
-            1) grep -Fq 'Lab User | 1234 | Pune' output.txt ;;
-            2) [[ $(grep -Fc '1 2 5 6 7 9 ' output.txt) == 2 ]] ;;
-            3) grep -Fq 'Consumed:6' output.txt ;;
-            4) grep -Fq 'finished EATING' output.txt ;;
-            5) grep -Fq 'P0 -> P1 -> P2 -> P3' output.txt ;;
-            6) grep -Fq 'Total Characters: 45' output.txt && grep -Fq 'Total Words     : 8' report.txt ;;
-            7) grep -Fq 'Hello from a pipe.' output.txt ;;
-            8) output=$(grep -F 'Total seek time' output.txt)
-               [[ $output == $'Total seek time = 155\nTotal seek time = 331\nTotal seek time = 170' ]] ;;
+            1)
+                run_sample $'1\n3\nLab User\n1234\nPune\n2\n5\nLab User\nLab User\n5678\nPune\n2\n4\nLab User\n2\n6\n' &&
+                    grep -Fq 'Lab User | 1234 | Pune' output.txt &&
+                    grep -Fq 'Lab User | 5678 | Pune' output.txt &&
+                    grep -Fq 'Record deleted successfully.' output.txt &&
+                    [[ -f addressbook.txt && ! -s addressbook.txt ]]
+                ;;
+            2)
+                run_sample $'6\n2 9 7 5 6 1\n' &&
+                    [[ $(grep -Fc '1 2 5 6 7 9 ' output.txt) == 2 ]] &&
+                    run_sample '' zombie && grep -Fq 'reaped child PID' output.txt &&
+                    run_sample '' orphan && grep -Fq 'changed PPID' output.txt
+                ;;
+            3)
+                run_sample '' || return 1
+                produced=$(sed -n 's/^Produced://p' output.txt)
+                consumed=$(sed -n 's/^Consumed://p' output.txt)
+                [[ $produced == $'1\n2\n3\n4\n5\n6' && $consumed == "$produced" ]]
+                ;;
+            4) run_sample '' sample 124 && grep -Fq 'finished EATING' output.txt ;;
+            5) run_sample '' && grep -Fq 'P0 -> P1 -> P2 -> P3' output.txt ;;
+            6)
+                run_sample $'Hello world! This is a FIFO full-duplex test.\nHello world!\nexit\n' &&
+                    grep -Fq 'Total Characters: 45' output.txt &&
+                    grep -Fq 'Total Words     : 8' output.txt &&
+                    grep -Fq 'Total Characters: 12' report.txt &&
+                    grep -Fq 'Total Words     : 2' report.txt &&
+                    grep -Fq 'Process 2 terminating.' output.txt
+                ;;
+            7)
+                awk 'BEGIN {for (i=1;i<=8192;i++) printf "Pipe test line %d with spaces.\n", i}' > 'sample with spaces.txt' &&
+                    run_sample $'sample with spaces.txt\n' &&
+                    cmp -s -- 'sample with spaces.txt' <(grep '^Pipe test line ' output.txt) &&
+                    run_sample $'missing.txt\n' && grep -Fq 'Error: Could not open the specified file.' output.txt
+                ;;
+            8)
+                run_sample $'8\n25 65 43 98 57 89 102 10\n57\n199\n' || return 1
+                output=$(grep -F 'Total seek time' output.txt)
+                [[ $output == $'Total seek time = 155\nTotal seek time = 331\nTotal seek time = 170' ]]
+                ;;
         esac
-        if (( $? != 0 )); then
-            printf '\nFAIL %s: sample output did not match.\n' "$number"
-            cat output.txt
-            return 1
+    }
+
+    for number in {1..8}; do
+        status=0
+        : > output.txt || return 1
+        if ! prepare_sources "$number"; then
+            printf 'FAIL %s  Could not save the test source.\n' "$number"
+            failed+=("$number")
+        elif check_sample; then
+            printf 'PASS %s  %s\n' "$number" "${titles[number]}"
+            ((passed += 1))
+        else
+            printf 'FAIL %s  %s (last exit status %s)\n' "$number" "${titles[number]}" "$status"
+            sed -n '1,12p' output.txt
+            failed+=("$number")
         fi
-        printf 'PASS %s  %s\n' "$number" "${titles[number]}"
     done
-    printf 'All eight sample checks passed on this PC.\n'
+    printf '\nPassed %s of 8 checks.\n' "$passed"
+    if (( ${#failed[@]} )); then
+        printf 'Check practicals: %s. Use D for offline help.\n' "${failed[*]}"
+        return 1
+    fi
 )
 
 run_menu() {
