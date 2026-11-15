@@ -1,0 +1,1132 @@
+OS PRACTICALS - ALL SOURCE CODE
+
+Copy only the code between START CODE and END CODE. Save it with the filename shown.
+
+========================================================================
+
+PRACTICAL 1 - Address book
+Save as: practical1.sh
+START CODE
+file=addressbook.txt
+
+update_record() {
+    local action=$1 name temp status newname newphone newcity
+    echo "Enter Name to $action:"
+    IFS= read -r name || return
+
+    if [[ ! -f $file ]]; then
+        echo "Address book does not exist."
+        return
+    fi
+
+    temp=$(mktemp ./addressbook.XXXXXX) || return
+    TARGET_NAME=$name awk '
+        index($0, ENVIRON["TARGET_NAME"] " | ") == 1 { found = 1; next }
+        { print }
+        END { if (!found) exit 3 }
+    ' "$file" > "$temp"
+    status=$?
+    if (( status != 0 )); then
+        rm -f -- "$temp"
+        if (( status == 3 )); then
+            echo "Record not found."
+        fi
+        return
+    fi
+
+    if [[ $action == modify ]]; then
+        if ! {
+            echo "Enter New Name:"
+            IFS= read -r newname &&
+            echo "Enter New Phone Number:" &&
+            IFS= read -r newphone &&
+            echo "Enter New City:" &&
+            IFS= read -r newcity &&
+            printf '%s | %s | %s\n' "$newname" "$newphone" "$newcity" >> "$temp"
+        }; then
+            rm -f -- "$temp"
+            return
+        fi
+    fi
+
+    if mv -- "$temp" "$file"; then
+        if [[ $action == modify ]]; then
+            echo "Record modified successfully."
+        else
+            echo "Record deleted successfully."
+        fi
+    else
+        rm -f -- "$temp"
+    fi
+}
+
+while true; do
+    echo "=========================="
+    echo " ADDRESS BOOK MENU"
+    echo "=========================="
+    echo "1. Create"
+    echo "2. View"
+    echo "3. Insert"
+    echo "4. Delete"
+    echo "5. Modify"
+    echo "6. Exit"
+    echo "Enter your choice:"
+    read -r choice || break
+
+    case $choice in
+        1)
+            if > "$file"; then
+                echo "Address book created successfully."
+            fi
+            ;;
+        2)
+            if [[ -f $file ]]; then
+                echo "----- Address Book -----"
+                cat -- "$file"
+            else
+                echo "Address book does not exist."
+            fi
+            ;;
+        3)
+            echo "Enter Name:"
+            IFS= read -r name || break
+            echo "Enter Phone Number:"
+            IFS= read -r phone || break
+            echo "Enter City:"
+            IFS= read -r city || break
+            if printf '%s | %s | %s\n' "$name" "$phone" "$city" >> "$file"; then
+                echo "Record inserted successfully."
+            fi
+            ;;
+        4) update_record delete ;;
+        5) update_record modify ;;
+        6)
+            echo "Exiting..."
+            break
+            ;;
+        *) echo "Invalid choice." ;;
+    esac
+done
+END CODE
+
+========================================================================
+
+PRACTICAL 2 - Process management and sorting
+Save as: practical2.c
+START CODE
+#define _POSIX_C_SOURCE 200809L
+#include <errno.h>
+#include <inttypes.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+
+static void bubble_sort(int arr[], int n)
+{
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (arr[j] > arr[j + 1]) {
+                int temp = arr[j];
+                arr[j] = arr[j + 1];
+                arr[j + 1] = temp;
+            }
+        }
+    }
+}
+
+static void selection_sort(int arr[], int n)
+{
+    for (int i = 0; i < n - 1; i++) {
+        int min = i;
+        for (int j = i + 1; j < n; j++) {
+            if (arr[j] < arr[min])
+                min = j;
+        }
+        int temp = arr[i];
+        arr[i] = arr[min];
+        arr[min] = temp;
+    }
+}
+
+static void display(const int arr[], int n)
+{
+    for (int i = 0; i < n; i++)
+        printf("%d ", arr[i]);
+    printf("\n");
+}
+
+static int wait_for_child(pid_t pid)
+{
+    int status;
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) {
+            perror("waitpid");
+            return EXIT_FAILURE;
+        }
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0
+        ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+static int demonstrate_zombie(void)
+{
+    pid_t child = fork();
+    if (child < 0) {
+        perror("fork");
+        return EXIT_FAILURE;
+    }
+    if (child == 0)
+        _exit(0);
+
+    siginfo_t info;
+    int result;
+    do {
+        result = waitid(P_PID, child, &info, WEXITED | WNOWAIT);
+    } while (result < 0 && errno == EINTR);
+    if (result < 0)
+        perror("waitid");
+    else
+        printf("Zombie: child PID %jd has exited and is waiting to be reaped.\n",
+               (intmax_t)info.si_pid);
+
+    if (wait_for_child(child) != EXIT_SUCCESS || result < 0)
+        return EXIT_FAILURE;
+    printf("Parent reaped child PID %jd with waitpid().\n", (intmax_t)child);
+    return EXIT_SUCCESS;
+}
+
+static int demonstrate_orphan(void)
+{
+    int notification[2];
+    if (pipe(notification) < 0) {
+        perror("pipe");
+        return EXIT_FAILURE;
+    }
+
+    pid_t parent = fork();
+    if (parent < 0) {
+        perror("fork");
+        close(notification[0]);
+        close(notification[1]);
+        return EXIT_FAILURE;
+    }
+    if (parent == 0) {
+        close(notification[0]);
+        pid_t original_parent = getpid();
+        pid_t child = fork();
+        if (child < 0) {
+            perror("fork");
+            _exit(EXIT_FAILURE);
+        }
+        if (child > 0)
+            _exit(EXIT_SUCCESS);
+
+        struct timespec delay = {0, 10000000};
+        pid_t current_parent;
+        while ((current_parent = getppid()) == original_parent)
+            nanosleep(&delay, NULL);
+        printf("Orphan: child PID %jd changed PPID from %jd to %jd.\n",
+               (intmax_t)getpid(), (intmax_t)original_parent,
+               (intmax_t)current_parent);
+        fflush(stdout);
+        close(notification[1]);
+        _exit(EXIT_SUCCESS);
+    }
+
+    close(notification[1]);
+    int status = wait_for_child(parent);
+    char unused;
+    ssize_t result;
+    do {
+        result = read(notification[0], &unused, 1);
+    } while (result < 0 && errno == EINTR);
+    close(notification[0]);
+    if (result < 0) {
+        perror("read");
+        return EXIT_FAILURE;
+    }
+    return status;
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc == 2 && strcmp(argv[1], "zombie") == 0)
+        return demonstrate_zombie();
+    if (argc == 2 && strcmp(argv[1], "orphan") == 0)
+        return demonstrate_orphan();
+    if (argc != 1) {
+        fprintf(stderr, "Usage: %s [zombie|orphan]\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    int n;
+    printf("Enter number of elements: ");
+    fflush(stdout);
+    if (scanf("%d", &n) != 1 || n <= 0 || (size_t)n > SIZE_MAX / sizeof(int)) {
+        fprintf(stderr, "Enter a positive number of elements.\n");
+        return EXIT_FAILURE;
+    }
+
+    int *arr = malloc((size_t)n * sizeof(*arr));
+    if (arr == NULL) {
+        perror("malloc");
+        return EXIT_FAILURE;
+    }
+
+    printf("Enter integers:\n");
+    fflush(stdout);
+    for (int i = 0; i < n; i++) {
+        if (scanf("%d", &arr[i]) != 1) {
+            fprintf(stderr, "Expected %d integers.\n", n);
+            free(arr);
+            return EXIT_FAILURE;
+        }
+    }
+
+    fflush(stdout);
+    pid_t child = fork();
+    if (child < 0) {
+        printf("Fork failed.\n");
+        free(arr);
+        return EXIT_FAILURE;
+    }
+
+    if (child == 0) {
+        printf("\nChild Process (PID = %jd)\n", (intmax_t)getpid());
+        selection_sort(arr, n);
+        printf("Sorted by Child (Selection Sort): ");
+        display(arr, n);
+        free(arr);
+        return EXIT_SUCCESS;
+    }
+
+    bubble_sort(arr, n);
+    if (wait_for_child(child) != EXIT_SUCCESS) {
+        free(arr);
+        return EXIT_FAILURE;
+    }
+    printf("\nParent Process (PID = %jd)\n", (intmax_t)getpid());
+    printf("Sorted by Parent (Bubble Sort): ");
+    display(arr, n);
+    free(arr);
+    printf("Child process completed.\n");
+    return EXIT_SUCCESS;
+}
+END CODE
+
+========================================================================
+
+PRACTICAL 3 - Producer-consumer
+Save as: practical3.c
+START CODE
+#define _POSIX_C_SOURCE 200809L
+#include <errno.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+enum { BUFFER_SIZE = 5, ITEMS = 6 };
+
+static int buffer[BUFFER_SIZE];
+static sem_t empty, full;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void wait_for_slot(sem_t *slots)
+{
+    while (sem_wait(slots) == -1) {
+        if (errno != EINTR) {
+            perror("sem_wait");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
+static void *producer(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < ITEMS; i++) {
+        wait_for_slot(&empty);
+        pthread_mutex_lock(&mutex);
+        buffer[i % BUFFER_SIZE] = i + 1;
+        printf("Produced:%d\n", i + 1);
+        pthread_mutex_unlock(&mutex);
+        sem_post(&full);
+    }
+    return NULL;
+}
+
+static void *consumer(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < ITEMS; i++) {
+        wait_for_slot(&full);
+        pthread_mutex_lock(&mutex);
+        printf("Consumed:%d\n", buffer[i % BUFFER_SIZE]);
+        pthread_mutex_unlock(&mutex);
+        sem_post(&empty);
+    }
+    return NULL;
+}
+
+static void check_thread(int status)
+{
+    if (status != 0) {
+        fprintf(stderr, "Thread error: %s\n", strerror(status));
+        exit(EXIT_FAILURE);
+    }
+}
+
+int main(void)
+{
+    pthread_t p, c;
+    if (sem_init(&empty, 0, BUFFER_SIZE) < 0) {
+        perror("sem_init");
+        return EXIT_FAILURE;
+    }
+    if (sem_init(&full, 0, 0) < 0) {
+        perror("sem_init");
+        sem_destroy(&empty);
+        return EXIT_FAILURE;
+    }
+
+    check_thread(pthread_create(&p, NULL, producer, NULL));
+    check_thread(pthread_create(&c, NULL, consumer, NULL));
+    check_thread(pthread_join(p, NULL));
+    check_thread(pthread_join(c, NULL));
+
+    sem_destroy(&empty);
+    sem_destroy(&full);
+    pthread_mutex_destroy(&mutex);
+    return EXIT_SUCCESS;
+}
+END CODE
+
+========================================================================
+
+PRACTICAL 4 - Dining philosophers
+Save as: practical4.c
+START CODE
+#define _POSIX_C_SOURCE 200809L
+#include <errno.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+enum { PHILOSOPHERS = 5 };
+
+static sem_t forks[PHILOSOPHERS];
+static sem_t room;
+
+static void wait_for(sem_t *resource)
+{
+    while (sem_wait(resource) < 0) {
+        if (errno != EINTR) {
+            perror("sem_wait");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
+static void *philosopher(void *arg)
+{
+    int left = *(int *)arg;
+    int right = (left + 1) % PHILOSOPHERS;
+    int id = left + 1;
+
+    for (;;) {
+        printf("Philosopher %d is THINKING\n", id);
+        sleep(1);
+
+        wait_for(&room);
+        wait_for(&forks[left]);
+        printf("Philosopher %d picked LEFT fork %d\n", id, left + 1);
+
+        wait_for(&forks[right]);
+        printf("Philosopher %d picked RIGHT fork %d\n", id, right + 1);
+
+        printf("Philosopher %d is EATING\n", id);
+        sleep(2);
+
+        sem_post(&forks[left]);
+        sem_post(&forks[right]);
+        printf("Philosopher %d finished EATING\n", id);
+
+        sem_post(&room);
+        sleep(1);
+    }
+    return NULL;
+}
+
+int main(void)
+{
+    pthread_t threads[PHILOSOPHERS];
+    int ids[PHILOSOPHERS];
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
+    if (sem_init(&room, 0, PHILOSOPHERS - 1) < 0) {
+        perror("sem_init");
+        return EXIT_FAILURE;
+    }
+    for (int i = 0; i < PHILOSOPHERS; i++) {
+        if (sem_init(&forks[i], 0, 1) < 0) {
+            perror("sem_init");
+            return EXIT_FAILURE;
+        }
+    }
+    for (int i = 0; i < PHILOSOPHERS; i++) {
+        ids[i] = i;
+        int status = pthread_create(&threads[i], NULL, philosopher, &ids[i]);
+        if (status != 0) {
+            fprintf(stderr, "Thread error: %s\n", strerror(status));
+            return EXIT_FAILURE;
+        }
+    }
+    for (int i = 0; i < PHILOSOPHERS; i++)
+        pthread_join(threads[i], NULL);
+
+    return EXIT_SUCCESS;
+}
+END CODE
+
+========================================================================
+
+PRACTICAL 5 - Banker's algorithm
+Save as: practical5.c
+START CODE
+#include <stdio.h>
+#include <stdbool.h>
+
+#define P 4
+#define R 3
+
+bool isSafeState(int available[R], int max[P][R], int allocation[P][R], int safeSequence[P]) {
+    int need[P][R];
+    int work[R];
+    bool finish[P] = {false};
+
+    for (int i = 0; i < P; i++) {
+        for (int j = 0; j < R; j++) {
+            need[i][j] = max[i][j] - allocation[i][j];
+        }
+    }
+
+    for (int i = 0; i < R; i++) {
+        work[i] = available[i];
+    }
+
+    int count = 0;
+    while (count < P) {
+        bool foundProcess = false;
+
+        for (int p = 0; p < P; p++) {
+            if (!finish[p]) {
+                bool canAllocate = true;
+
+                for (int j = 0; j < R; j++) {
+                    if (need[p][j] > work[j]) {
+                        canAllocate = false;
+                        break;
+                    }
+                }
+                if (canAllocate) {
+                    for (int j = 0; j < R; j++) {
+                        work[j] += allocation[p][j];
+                    }
+                    safeSequence[count++] = p;
+                    finish[p] = true;
+                    foundProcess = true;
+                }
+            }
+        }
+
+        if (!foundProcess) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+int main(void) {
+    int available[R] = {1, 1, 1};
+
+    int max[P][R] = {
+        {2, 2, 1},
+        {2, 1, 2},
+        {3, 2, 2},
+        {1, 2, 1}
+    };
+
+    int allocation[P][R] = {
+        {1, 1, 0},
+        {1, 0, 1},
+        {1, 1, 1},
+        {0, 1, 0},
+    };
+    int safeSequence[P];
+
+    printf("--- Banker's Algorithm Deadlock Avoidance ---\n\n");
+
+    if (isSafeState(available, max, allocation, safeSequence)) {
+        printf("Result: The system is in a SAFE state.\n");
+        printf("Safe Execution Sequence: ");
+        for (int i = 0; i < P; i++) {
+            printf("P%d", safeSequence[i]);
+            if (i < P - 1) printf(" -> ");
+        }
+        printf("\n");
+    } else {
+        printf("Result: The system is in an UNSAFE state! (Deadlock danger)\n");
+    }
+
+    return 0;
+}
+END CODE
+
+========================================================================
+
+PRACTICAL 6 - Named pipes - Process 1
+Save as: process1.c
+START CODE
+#define _POSIX_C_SOURCE 200809L
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+
+int main(int argc, char *argv[])
+{
+    if (argc != 1 && argc != 3) {
+        fprintf(stderr, "Usage: %s [fifo1 fifo2]\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+    const char *fifo1 = argc == 3 ? argv[1] : "fifo1";
+    const char *fifo2 = argc == 3 ? argv[2] : "fifo2";
+    char *input = NULL;
+    size_t capacity = 0;
+    int status = EXIT_SUCCESS;
+
+    printf("--- Process 1 Started ---\n");
+    for (;;) {
+        printf("\nEnter a sentence (or type 'exit' to quit): \n> ");
+        fflush(stdout);
+        ssize_t length = getline(&input, &capacity, stdin);
+        const char *sentence = "exit";
+        if (length >= 0) {
+            while (length > 0 && (input[length - 1] == '\n' || input[length - 1] == '\r'))
+                input[--length] = '\0';
+            sentence = input;
+        }
+
+        FILE *out = fopen(fifo1, "w");
+        if (out == NULL) {
+            perror("Error opening fifo1 for writing");
+            status = EXIT_FAILURE;
+            break;
+        }
+        int written = fprintf(out, "%s\n", sentence);
+        if (fclose(out) == EOF || written < 0) {
+            perror("Error writing to fifo1");
+            status = EXIT_FAILURE;
+            break;
+        }
+        if (strcmp(sentence, "exit") == 0)
+            break;
+
+        FILE *in = fopen(fifo2, "r");
+        if (in == NULL) {
+            perror("Error opening fifo2 for reading");
+            status = EXIT_FAILURE;
+            break;
+        }
+
+        printf("\n[Process 1] Received Analysis Report:\n");
+        char buffer[1024];
+        size_t count;
+        while ((count = fread(buffer, 1, sizeof buffer, in)) > 0)
+            fwrite(buffer, 1, count, stdout);
+        if (ferror(in)) {
+            perror("Error reading fifo2");
+            status = EXIT_FAILURE;
+        }
+        fclose(in);
+        if (status != EXIT_SUCCESS)
+            break;
+    }
+
+    free(input);
+    printf("Process 1 terminating. \n");
+    return status;
+}
+END CODE
+
+========================================================================
+
+PRACTICAL 6 - Named pipes - Process 2
+Save as: process2.c
+START CODE
+#define _POSIX_C_SOURCE 200809L
+#include <ctype.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+
+static void analyze_text(const char *text, size_t *chars, size_t *words, size_t *lines)
+{
+    bool in_word = false;
+    *chars = strlen(text);
+    *words = 0;
+    *lines = *chars > 0;
+    for (size_t i = 0; i < *chars; i++) {
+        unsigned char ch = (unsigned char)text[i];
+        if (ch == '\n')
+            (*lines)++;
+        if (isspace(ch)) {
+            in_word = false;
+        } else if (!in_word) {
+            in_word = true;
+            (*words)++;
+        }
+    }
+}
+
+static void write_report_and_send(const char *text, FILE *out)
+{
+    size_t chars, words, lines;
+    analyze_text(text, &chars, &words, &lines);
+
+    FILE *report = fopen("report.txt", "w+");
+    if (report == NULL) {
+        perror("Error opening file");
+        return;
+    }
+    int written = fprintf(report,
+                          " ------------------------- \n"
+                          "Original Text: %s \n"
+                          "Total Characters: %zu \n"
+                          "Total Words     : %zu \n"
+                          "Total Lines     : %zu \n"
+                          " ------------------------- \n",
+                          text, chars, words, lines);
+    if (written < 0 || fflush(report) == EOF || fseek(report, 0, SEEK_SET) < 0) {
+        perror("Error saving report.txt");
+        fclose(report);
+        return;
+    }
+
+    char buffer[1024];
+    size_t count;
+    while ((count = fread(buffer, 1, sizeof buffer, report)) > 0) {
+        if (fwrite(buffer, 1, count, out) != count) {
+            perror("Error writing fifo2");
+            break;
+        }
+    }
+    if (ferror(report))
+        perror("Error reading report.txt");
+    fclose(report);
+}
+
+int main(int argc, char *argv[])
+{
+    if (argc != 1 && argc != 3) {
+        fprintf(stderr, "Usage: %s [fifo1 fifo2]\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+    const char *fifo1 = argc == 3 ? argv[1] : "fifo1";
+    const char *fifo2 = argc == 3 ? argv[2] : "fifo2";
+    char *input = NULL;
+    size_t capacity = 0;
+    int status = EXIT_SUCCESS;
+
+    printf("--- Process 2 Started (Waiting for data...) ---\n");
+    fflush(stdout);
+    for (;;) {
+        FILE *in = fopen(fifo1, "r");
+        if (in == NULL) {
+            perror("Error opening fifo1 for reading");
+            status = EXIT_FAILURE;
+            break;
+        }
+        ssize_t length = getline(&input, &capacity, in);
+        fclose(in);
+        if (length < 0)
+            break;
+        if (length > 0 && input[length - 1] == '\n')
+            input[length - 1] = '\0';
+        if (strcmp(input, "exit") == 0)
+            break;
+
+        FILE *out = fopen(fifo2, "w");
+        if (out == NULL) {
+            perror("Error opening fifo2 for writing");
+            status = EXIT_FAILURE;
+            break;
+        }
+        write_report_and_send(input, out);
+        if (fclose(out) == EOF) {
+            perror("Error closing fifo2");
+            status = EXIT_FAILURE;
+            break;
+        }
+    }
+
+    free(input);
+    printf("Process 2 terminating. \n");
+    return status;
+}
+END CODE
+
+========================================================================
+
+PRACTICAL 7 - Unnamed pipes and file transfer
+Save as: practical7.c
+START CODE
+#define _POSIX_C_SOURCE 200809L
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+enum { BUFFER_SIZE = 1024 };
+
+static int write_all(int fd, const void *data, size_t length)
+{
+    const char *next = data;
+    while (length > 0) {
+        ssize_t count = write(fd, next, length);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            return -1;
+        next += count;
+        length -= (size_t)count;
+    }
+    return 0;
+}
+
+static int copy_file(int path_pipe, int result_pipe)
+{
+    FILE *input = fdopen(path_pipe, "r");
+    if (input == NULL) {
+        perror("fdopen");
+        return EXIT_FAILURE;
+    }
+    char *filepath = NULL;
+    size_t capacity = 0;
+    ssize_t length = getdelim(&filepath, &capacity, '\0', input);
+    fclose(input);
+    if (length <= 0) {
+        free(filepath);
+        return EXIT_FAILURE;
+    }
+
+    int fd = open(filepath, O_RDONLY);
+    free(filepath);
+    if (fd < 0) {
+        const char message[] = "Error: Could not open the specified file.";
+        return write_all(result_pipe, message, sizeof message - 1) == 0
+            ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+    char buffer[BUFFER_SIZE];
+    ssize_t count;
+    int status = EXIT_SUCCESS;
+    for (;;) {
+        count = read(fd, buffer, sizeof buffer);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0)
+            break;
+        if (write_all(result_pipe, buffer, (size_t)count) < 0) {
+            perror("write");
+            status = EXIT_FAILURE;
+            break;
+        }
+    }
+    if (count < 0) {
+        perror("read");
+        status = EXIT_FAILURE;
+    }
+    close(fd);
+    return status;
+}
+
+int main(void)
+{
+    int pipe1[2];
+    int pipe2[2];
+    if (pipe(pipe1) < 0) {
+        perror("pipe1 creation failed");
+        return EXIT_FAILURE;
+    }
+    if (pipe(pipe2) < 0) {
+        perror("pipe2 creation failed");
+        return EXIT_FAILURE;
+    }
+
+    pid_t child = fork();
+    if (child < 0) {
+        perror("fork failed");
+        return EXIT_FAILURE;
+    }
+    if (child == 0) {
+        close(pipe1[1]);
+        close(pipe2[0]);
+        int status = copy_file(pipe1[0], pipe2[1]);
+        close(pipe2[1]);
+        _exit(status);
+    }
+
+    close(pipe1[0]);
+    close(pipe2[1]);
+    char *filepath = NULL;
+    size_t capacity = 0;
+    printf("Parent Process: Enter the file pathname to read: ");
+    fflush(stdout);
+    ssize_t length = getline(&filepath, &capacity, stdin);
+    int status = EXIT_SUCCESS;
+
+    if (length < 0) {
+        status = EXIT_FAILURE;
+    } else {
+        if (length > 0 && filepath[length - 1] == '\n')
+            filepath[--length] = '\0';
+        if (write_all(pipe1[1], filepath, (size_t)length + 1) < 0) {
+            perror("write");
+            status = EXIT_FAILURE;
+        }
+    }
+    free(filepath);
+    close(pipe1[1]);
+
+    if (status == EXIT_SUCCESS) {
+        printf("\n--- Content received from Child Process ---\n");
+        char buffer[BUFFER_SIZE];
+        for (;;) {
+            ssize_t count = read(pipe2[0], buffer, sizeof buffer);
+            if (count < 0 && errno == EINTR)
+                continue;
+            if (count <= 0) {
+                if (count < 0) {
+                    perror("read");
+                    status = EXIT_FAILURE;
+                }
+                break;
+            }
+            if (fwrite(buffer, 1, (size_t)count, stdout) != (size_t)count) {
+                status = EXIT_FAILURE;
+                break;
+            }
+        }
+        printf("\n------------------------------------------\n");
+    }
+    close(pipe2[0]);
+
+    int child_status;
+    pid_t waited;
+    do {
+        waited = waitpid(child, &child_status, 0);
+    } while (waited < 0 && errno == EINTR);
+    if (waited < 0) {
+        perror("waitpid");
+        return EXIT_FAILURE;
+    }
+    if (!WIFEXITED(child_status) || WEXITSTATUS(child_status) != 0)
+        return EXIT_FAILURE;
+    return status;
+}
+END CODE
+
+========================================================================
+
+PRACTICAL 8 - Disk scheduling
+Save as: practical8.c
+START CODE
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+enum { MAX_REQUESTS = 100 };
+
+static long long distance_between(int a, int b)
+{
+    return llabs((long long)a - b);
+}
+
+static void sstf(const int requests[], int n, int head)
+{
+    int done[MAX_REQUESTS] = {0};
+    long long seek = 0;
+    int current = head;
+    printf("\nSSTF: %d", head);
+
+    for (int i = 0; i < n; i++) {
+        long long shortest = LLONG_MAX;
+        int next = -1;
+        for (int j = 0; j < n; j++) {
+            long long distance = distance_between(requests[j], current);
+            if (!done[j] && distance < shortest) {
+                shortest = distance;
+                next = j;
+            }
+        }
+
+        done[next] = 1;
+        seek += shortest;
+        current = requests[next];
+        printf(" -> %d", current);
+    }
+    printf("\nTotal seek time = %lld\n", seek);
+}
+
+static void move_to(int cylinder, int *current, long long *seek)
+{
+    *seek += distance_between(cylinder, *current);
+    *current = cylinder;
+    printf(" -> %d", cylinder);
+}
+
+static void scan(const int requests[], int n, int head, int max)
+{
+    long long seek = 0;
+    int current = head;
+    printf("\nSCAN: %d", head);
+
+    for (int i = 0; i < n; i++) {
+        if (requests[i] >= head)
+            move_to(requests[i], &current, &seek);
+    }
+    move_to(max, &current, &seek);
+    for (int i = n - 1; i >= 0; i--) {
+        if (requests[i] < head)
+            move_to(requests[i], &current, &seek);
+    }
+    printf("\nTotal seek time = %lld\n", seek);
+}
+
+static void clook(const int requests[], int n, int head)
+{
+    long long seek = 0;
+    int current = head;
+    printf("\nC-LOOK: %d", head);
+
+    for (int i = 0; i < n; i++) {
+        if (requests[i] >= head)
+            move_to(requests[i], &current, &seek);
+    }
+    for (int i = 0; i < n; i++) {
+        if (requests[i] < head)
+            move_to(requests[i], &current, &seek);
+    }
+    printf("\nTotal seek time = %lld\n", seek);
+}
+
+static int compare_ints(const void *first, const void *second)
+{
+    int a = *(const int *)first;
+    int b = *(const int *)second;
+    return (a > b) - (a < b);
+}
+
+int main(void)
+{
+    int requests[MAX_REQUESTS], n, head, max;
+    printf("Enter number of requests: ");
+    if (scanf("%d", &n) != 1 || n < 1 || n > MAX_REQUESTS) {
+        fprintf(stderr, "Enter a request count from 1 to %d.\n", MAX_REQUESTS);
+        return EXIT_FAILURE;
+    }
+
+    printf("Enter request queue: ");
+    for (int i = 0; i < n; i++) {
+        if (scanf("%d", &requests[i]) != 1) {
+            fprintf(stderr, "Expected %d cylinder numbers.\n", n);
+            return EXIT_FAILURE;
+        }
+    }
+
+    printf("Enter initial head position: ");
+    if (scanf("%d", &head) != 1 || head < 0) {
+        fprintf(stderr, "Enter a nonnegative head position.\n");
+        return EXIT_FAILURE;
+    }
+
+    printf("Enter maximum cylinder number: ");
+    if (scanf("%d", &max) != 1 || max < head) {
+        fprintf(stderr, "The maximum cylinder must be at least the head position.\n");
+        return EXIT_FAILURE;
+    }
+    for (int i = 0; i < n; i++) {
+        if (requests[i] < 0 || requests[i] > max) {
+            fprintf(stderr, "Requests must be between 0 and %d.\n", max);
+            return EXIT_FAILURE;
+        }
+    }
+
+    sstf(requests, n, head);
+    qsort(requests, (size_t)n, sizeof(requests[0]), compare_ints);
+    scan(requests, n, head, max);
+    clook(requests, n, head);
+    return EXIT_SUCCESS;
+}
+END CODE
+
+========================================================================
+
+UBUNTU RUN COMMANDS
+
+Open the terminal in the folder where you saved the source files.
+
+Practical 1
+bash practical1.sh
+
+Practical 2
+gcc practical2.c -o practical2 && ./practical2
+./practical2 zombie
+./practical2 orphan
+The last two commands are separate demonstrations. Run them after compilation.
+
+Practical 3
+gcc practical3.c -pthread -o practical3 && ./practical3
+
+Practical 4
+gcc practical4.c -pthread -o practical4 && ./practical4
+Press Ctrl+C to stop.
+
+Practical 5
+gcc practical5.c -o practical5 && ./practical5
+
+Practical 6 - Open two terminals in the same folder
+Terminal 1:
+gcc process1.c -o process1
+gcc process2.c -o process2
+mkfifo fifo1 fifo2
+./process2
+Run mkfifo only once in that folder.
+
+Terminal 2:
+./process1
+Type a sentence in Terminal 2. Type exit to finish both programs.
+
+Practical 7
+gcc practical7.c -o practical7 && ./practical7
+When prompted, enter the path of a readable text file.
+
+Practical 8
+gcc practical8.c -o practical8 && ./practical8
