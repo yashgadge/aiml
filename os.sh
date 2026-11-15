@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+if LC_ALL=C grep -Uq $'\r$' -- "$0"; then sed -b -i --follow-symlinks $'s/\r$//' -- "$0" || { printf '%s\n' 'Could not repair the line endings. Copy the launcher into a writable folder under Home and open it there.' >&2; exit 1; }; printf 'Fixed Windows line endings in %s.\n' "${0##*/}"; exec "$BASH" "$0" "$@"; fi; : ''
 
 if (( BASH_VERSINFO[0] < 4 )); then
     printf '%s\n' 'This assistant needs Bash 4 or newer.' >&2
@@ -2557,6 +2558,7 @@ END_WRITE_RECOVERY_3
         encoding)
             cat <<'END_WRITE_RECOVERY_4'
 A Bash file starts with #!/usr/bin/env bash. Keep this file's .sh extension and open it with Bash.
+This launcher repairs Windows line endings automatically when started with Bash.
 If the downloaded file starts with Length:, is HTML, or shows wget progress, it is not the launcher.
 Get the raw file again or use your clean offline USB copy.
 Check the file before running it: head -n 2 os-practicals.sh
