@@ -1259,6 +1259,339 @@ run_native() (
 )
 
 
+write_walkthrough() {
+    case $1 in
+        1)
+            cat <<'END_WRITE_WALKTHROUGH_1'
+What goes in and what comes out
+  Input: a menu number and, for record operations, a name, phone number and city.
+  Storage: addressbook.txt in the working directory. Each line is a record.
+  Output: the current records or a message about the requested operation.
+  A phone number is text. Storing it as a number could drop leading zeros.
+
+Code blocks and data flow
+  while true repeats the menu. read gets the choice; case sends it to the
+  correct branch. 6 exits. End of input also leaves the menu loop.
+  > opens an empty file for Create. >> appends a record without erasing the
+  earlier records. printf uses a fixed format and inserts the three fields.
+  In update_record(), mktemp creates a temporary file. AWK copies the lines
+  whose prefix is different from the literal name plus " | ". ENVIRON passes
+  the name as data, so a dot in a name does not act as a regular expression.
+  Delete moves the filtered file over the old one. Modify adds the new line
+  first, then replaces the original. If no name matches, neither changes it.
+
+Dry run
+  1                 Create an empty addressbook.txt.
+  3, Asha Patil     Read the name, then 9876543210, then Pune.
+  2                 Print: Asha Patil | 9876543210 | Pune
+  5, Asha Patil     Enter the replacement name, phone and city when asked.
+  2                 Verify that the new record is present.
+  4, Asha Patil     Delete that name, assuming it was kept during Modify.
+  2                 The Address Book heading remains, with no record below it.
+  6                 Exit. Reopening the program preserves the file.
+
+Checks and limits
+  Try an absent name and a name containing a dot. Matching is case-sensitive.
+  When several records have exactly the same name, Delete removes all matches.
+  Modify removes those matches and appends one replacement at the end.
+  View, Delete and Modify may scan the whole file, so their time is O(n) for n
+  records. The temporary copy can take O(n) additional space. Create clears
+  the file; avoid choosing it if you want to retain your records.
+  If the file cannot be saved, run from a writable folder under Home.
+END_WRITE_WALKTHROUGH_1
+            ;;
+        2)
+            cat <<'END_WRITE_WALKTHROUGH_2'
+What goes in and what comes out
+  Input: a positive count n and n integers, including duplicates or negatives.
+  Output: the child's Selection Sort result, the parent's Bubble Sort result,
+  and a completion message. The displayed process IDs are assigned at runtime.
+  The separate zombie and orphan modes take no sorting input.
+
+Code blocks and data flow
+  main() reads the array and flushes buffered output before fork().
+  The child's fork() result is 0. It sorts its own copy with Selection Sort.
+  The parent's result is the child's PID. The parent sorts with Bubble Sort
+  and uses waitpid() to collect the child before printing its own list.
+  Linux can initially share memory pages using copy-on-write. A modification
+  belongs to the writer's process, which is why neither sort alters the other.
+  wait_for_child() retries if waitpid() is interrupted and checks the exit
+  status. A valid collected exit is different from a failed fork.
+
+Dry run with 2 9 7 5 6 1
+  Bubble pass 1: 2 7 5 6 1 9   (largest remaining value reaches the end)
+  Bubble pass 2: 2 5 6 1 7 9
+  Bubble pass 3: 2 5 1 6 7 9
+  Bubble passes 4 and 5: 2 1 5 6 7 9 -> 1 2 5 6 7 9
+  Selection pass 1: 1 9 7 5 6 2   (select the minimum, then swap)
+  Selection pass 2: 1 2 7 5 6 9
+  Selection pass 3: 1 2 5 7 6 9
+  Selection passes 4 and 5: 1 2 5 6 7 9
+  Expected lines:
+    Sorted by Child (Selection Sort): 1 2 5 6 7 9
+    Sorted by Parent (Bubble Sort): 1 2 5 6 7 9
+    Child process completed.
+
+Process state demonstrations
+  2Z Zombie: the child exits. waitid() with WNOWAIT reports its exit without
+  collecting it. A later waitpid() reaps the zombie and removes the entry.
+  2O Orphan: an intermediate process creates a grandchild and exits. The still
+  running grandchild reports that its PPID changed. Its own PID stays the same.
+  A zombie has already stopped; an orphan is alive at the time of reparenting.
+
+Checks and limits
+  Try n = 1 or repeated values. Both sorts do O(n^2) comparisons in this
+  implementation and use O(1) extra sorting storage. The input array takes
+  O(n) memory. Enter exactly n whole numbers; Ctrl+D ends input on Ubuntu.
+END_WRITE_WALKTHROUGH_2
+            ;;
+        3)
+            cat <<'END_WRITE_WALKTHROUGH_3'
+What goes in and what comes out
+  There is no keyboard input. One producer sends the integers 1 through 6
+  through a five-slot buffer. One consumer takes them in the same order.
+  Output includes one Produced and one Consumed line for each integer.
+
+Code blocks and shared state
+  buffer[5] holds the items. empty starts at 5 and counts available slots;
+  full starts at 0 and counts items ready to consume. A mutex protects the
+  small section where a thread accesses the array and prints its operation.
+  Producer: wait(empty) -> lock -> store -> unlock -> post(full).
+  Consumer: wait(full)  -> lock -> read  -> unlock -> post(empty).
+  The producer and consumer have their own loop counters. Each uses index
+  i % BUFFER_SIZE so the sixth item uses slot 0 again. The semaphore order
+  ensures that the producer can reuse it only after space becomes available.
+  main() creates both threads, joins both and then destroys the resources.
+
+One possible dry run
+  Event                        empty  full   Meaning
+  Initial state                    5     0   Consumer would wait.
+  Producer completes item 1         4     1   Item 1 is ready in slot 0.
+  Consumer completes item 1         5     0   Slot 0 can be reused later.
+  Continue for items 2 through 5. Item 6 is stored and read at index 5 % 5 = 0.
+  The table shows counts after completed operations. In the middle of an
+  operation, a taken permit may not yet have been posted to the opposite count.
+
+Reading the output
+  You should see Produced:1 through Produced:6 and Consumed:1 through
+  Consumed:6 in order within each thread. The two sets of lines may interleave
+  differently on another run. A consumer cannot take an item before it exists.
+
+Checks and limits
+  Full and empty semaphores prevent overflow and underflow. The mutex protects
+  shared access but does not enforce capacity. Wait for the permit before
+  acquiring the mutex so a blocked worker does not trap the other worker.
+  Each operation does O(1) work apart from waiting. Buffer storage is O(B)
+  for capacity B. If thread symbols fail to link, keep the -pthread flag.
+END_WRITE_WALKTHROUGH_3
+            ;;
+        4)
+            cat <<'END_WRITE_WALKTHROUGH_4'
+What goes in and what comes out
+  No keyboard input. Five threads repeatedly think, pick forks, eat and put
+  forks down. Their messages appear in whatever order the OS schedules them.
+  Use Ctrl+C to stop after observing several rounds.
+
+Code blocks and resource layout
+  forks[5] holds one semaphore per fork, each initialized to 1. room starts
+  at 4 and counts how many philosophers may compete for forks.
+  For zero-based philosopher i, left = i and right = (i + 1) % 5. Printed
+  IDs add 1. Thus philosopher 5 uses printed forks 5 and 1.
+  Each thread thinks, waits for room, takes its two forks, eats, releases
+  both forks, leaves the room and repeats. main() keeps each ID in its own
+  array entry so threads do not share a changing loop counter.
+
+One possible dry run
+  Philosopher 1 is THINKING
+  Philosopher 1 picked LEFT fork 1
+  Philosopher 1 picked RIGHT fork 2
+  Philosopher 1 is EATING
+  Philosopher 1 finished EATING
+  A neighbor needs one of forks 1 or 2 and cannot eat simultaneously.
+  Philosopher 3 could eat with forks 3 and 4 while philosopher 1 eats.
+
+Why the limit matters
+  With five room permits, each philosopher could hold its left fork and wait
+  for the right fork held by the next person. No one could finish and release
+  a fork. With four permits, at least one philosopher cannot take a left fork;
+  when the four contenders hold their left forks, one can acquire the free fork
+  and make progress. The limit prevents this circular deadlock, but the
+  semaphores do not guarantee that every philosopher gets equal turns.
+
+Checks and limits
+  A pause between messages is expected because the threads sleep before and
+  after eating. Observe that philosopher 5's right fork wraps to 1 and that
+  each eater logs both acquisitions first. The program has no fixed final
+  meal count. If it fails to link, compile with -pthread.
+END_WRITE_WALKTHROUGH_4
+            ;;
+        5)
+            cat <<'END_WRITE_WALKTHROUGH_5'
+What goes in and what comes out
+  No keyboard input. The code uses four processes and three resource types
+  (A, B, C). Max and Allocation are matrices; Available is a vector.
+  Need[i][j] = Max[i][j] - Allocation[i][j]. Work is the simulated pool of
+  free resources. Finish marks processes that the simulation can complete.
+
+Data used by the program
+  Process    Allocation    Max        Need
+  P0         (1,1,0)       (2,2,1)    (1,1,1)
+  P1         (1,0,1)       (2,1,2)    (1,1,1)
+  P2         (1,1,1)       (3,2,2)    (2,1,1)
+  P3         (0,1,0)       (1,2,1)    (1,1,1)
+  Available = (1,1,1). Compare every component of Need to Work. Equal
+  values are allowed because exactly enough resources can satisfy a claim.
+
+Dry run of the safety check
+  Step   Work before   Process chosen   Work after
+  1      (1,1,1)       P0               (2,2,1)
+  2      (2,2,1)       P1               (3,2,2)
+  3      (3,2,2)       P2               (4,3,3)
+  4      (4,3,3)       P3               (4,4,3)
+  In each row Work grows by the selected process's original Allocation.
+  Its remaining Need can be borrowed from Work and returned on completion,
+  so the net increase is its original Allocation.
+
+Reading the output
+  Result: The system is in a SAFE state.
+  Safe Execution Sequence: P0 -> P1 -> P2 -> P3
+  Another valid safe sequence may exist; the code finds one by scanning from
+  the first row. On paper, try initial Work = (0,0,0) with the same rows. No
+  row can first complete, so this hypothetical state fails the safety test.
+
+Checks and limits
+  isSafeState() checks safety for the supplied snapshot. A full request
+  handler would make a tentative allocation, recheck safety, and roll back
+  if unsafe. There are at most n successful passes for n processes, each
+  scanning up to n rows with m resources, so worst-case time is O(n^2 m).
+  The Need matrix uses O(nm) storage; Work and Finish add O(m+n).
+END_WRITE_WALKTHROUGH_5
+            ;;
+        6)
+            cat <<'END_WRITE_WALKTHROUGH_6'
+What goes in and what comes out
+  Process 1 reads one line from the terminal. Process 2 counts bytes, words
+  and lines, writes the latest report to report.txt and returns it for display.
+  A named pipe (FIFO) has a filesystem path. Data moves through a kernel
+  stream; the pathname lets two separately launched processes find it.
+
+Two directions and the order of events
+  Terminal -> Process 1 --fifo1--> Process 2
+  Terminal <- Process 1 <--fifo2-- Process 2
+  1. Launcher creates both FIFOs and starts the two programs.
+  2. Process 1 reads a sentence, removes the line ending and sends the line
+     to fifo1. Closing its writer finishes the request for that iteration.
+  3. Process 2 reads the request. It stops on the exact string exit.
+  4. Otherwise it scans the bytes. Whitespace ends a word; transition from
+     whitespace to non-whitespace starts a new word. Punctuation such as
+     the comma in "Hello," remains part of the word.
+  5. Process 2 writes report.txt, rewinds the file, copies it through fifo2
+     and closes it. Process 1 reads the reply and prints it to the terminal.
+  6. Repeat for the next sentence. Typing exit ends both programs.
+
+Dry run
+  Input: Hello world!
+  The two words have 5 and 6 bytes, plus one space, so the total is 12.
+  The Enter key adds a line ending, which the program removes. The report is:
+    Original Text: Hello world!
+    Total Characters: 12
+    Total Words     : 2
+    Total Lines     : 1
+  Another sample, Hello world! This is a FIFO full-duplex test., gives
+  45 bytes, 8 words and 1 line. An empty input line gives 0, 0 and 0.
+
+Checks and limits
+  A named pipe opened for reading or writing may wait for the other side.
+  Start both programs in the same directory for a manual run. A regular file
+  with the same name is not a FIFO. The launcher creates its own pipes.
+  The latest report replaces the prior one. UTF-8 characters may use more than
+  one byte; the reported character count is a byte count. The analysis takes
+  O(L) time for L input bytes. The dynamic input buffer grows with the line.
+END_WRITE_WALKTHROUGH_6
+            ;;
+        7)
+            cat <<'END_WRITE_WALKTHROUGH_7'
+What goes in and what comes out
+  Enter a pathname, such as sample.txt or an absolute path. The child reads
+  the file and the parent displays its bytes. The program does not need to
+  know in advance how long the file is. The lab sample uses a readable text
+  file because its bytes can be shown directly in a terminal.
+
+Two inherited pipes
+  pipe1 takes the pathname from parent to child.
+  pipe2 takes the contents or an error message from child to parent.
+  For both arrays, index 0 is read and index 1 is write.
+  Process     Keep                   Close immediately
+  Parent      pipe1[1], pipe2[0]     pipe1[0], pipe2[1]
+  Child       pipe1[0], pipe2[1]     pipe1[1], pipe2[0]
+
+Code blocks and ordering
+  pipe() is called before fork() so both processes inherit the descriptors.
+  Parent uses getline(), strips the line ending and sends the pathname with
+  the terminating NUL. Child uses getdelim() with NUL to read that message.
+  Child calls open() in read-only mode. Each read() may return fewer bytes
+  than the buffer holds. write_all() repeats until the entire chunk is sent.
+  Parent drains pipe2 to EOF before calling waitpid(). If it waited first,
+  a large file could fill the pipe and block the child that it is waiting for.
+  EOF arrives only when the parent has drained the data and every copy of
+  the write descriptor has been closed.
+
+Dry run and checks
+  Make a text file called sample.txt containing one line, Hello from a pipe.
+  Enter sample.txt. The terminal prints the content under
+  "--- Content received from Child Process ---".
+  Try a missing file: the child sends "Error: Could not open the specified file."
+  A relative path starts from the folder where the run terminal opened.
+  Use the actual filename and capitalization. If a path contains spaces, type
+  the full path at the program prompt without adding shell quotes.
+  Try an empty file and one much larger than a pipe buffer. An empty file
+  has no content between the headings. Large files are read in chunks.
+  Time is O(F) for F file bytes; the transfer buffers have constant size.
+END_WRITE_WALKTHROUGH_7
+            ;;
+        8)
+            cat <<'END_WRITE_WALKTHROUGH_8'
+What goes in and what comes out
+  Input: 1 to 100 requests, the request queue, the head position and the
+  maximum valid cylinder. The head and each request must be in range.
+  Output: each algorithm's service path and total cylinder movement.
+  Starting position and a request at that same position can both appear,
+  with zero additional movement.
+
+How the algorithms choose the next position
+  SSTF repeatedly scans unserved requests for minimum absolute distance.
+  The done array marks served entries. If two are equally close, the first
+  unserved entry in the original order wins.
+  SCAN sorts the requests, serves the high side first, continues to the
+  maximum cylinder, then reverses to serve the low side in descending order.
+  C-LOOK sorts the requests, serves the high side, jumps to the lowest
+  remaining request and continues upward. It has no mandatory endpoint.
+  The program counts that jump in total movement. It uses a wide integer
+  for distance totals and allows duplicate cylinder requests.
+
+Worked dry run
+  Requests: 25 65 43 98 57 89 102 10  |  Head: 57  |  Max: 199
+  SSTF:   57 -> 57 -> 65 -> 43 -> 25 -> 10 -> 89 -> 98 -> 102
+          0 + 8 + 22 + 18 + 15 + 79 + 9 + 4 = 155
+  SCAN:   57 -> 57 -> 65 -> 89 -> 98 -> 102 -> 199 -> 43 -> 25 -> 10
+          0 + 8 + 24 + 9 + 4 + 97 + 156 + 18 + 15 = 331
+  C-LOOK: 57 -> 57 -> 65 -> 89 -> 98 -> 102 -> 10 -> 25 -> 43
+          0 + 8 + 24 + 9 + 4 + 92 + 15 + 18 = 170
+
+Checks and limits
+  Try requests on only one side of the head, duplicate requests, and a
+  request at the head. Type the highest valid cylinder, not the number of
+  cylinders; cylinders 0 through 199 mean a maximum of 199.
+  SSTF uses O(n^2) comparisons. SCAN and C-LOOK each take O(n) traversal
+  after the shared sort; sorting time depends on the qsort implementation.
+  The demo assumes a rotating-disk head model. Its label "Total seek time"
+  is a distance total in cylinders. Physical timing also depends on hardware.
+END_WRITE_WALKTHROUGH_8
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 write_paper() {
     case $1 in
         1)
@@ -1296,16 +1629,6 @@ The view displays Asha Patil | 9876543210 | Pune. Choose 6 to exit.
 
 Conclusion
 Bash control flow and text-file redirection implement a persistent address book.
-
-Viva practice
-Q. What is the difference between > and >>?
-A. > truncates or creates the file. >> appends or creates it.
-
-Q. Why quote a filename?
-A. Quotes keep whitespace and wildcard characters inside one argument.
-
-Q. Why use a temporary file?
-A. The original remains intact while the updated version is being prepared.
 END_WRITE_PAPER_1
             ;;
         2)
@@ -1343,19 +1666,6 @@ Both processes print 1 2 5 6 7 9. Process IDs vary. The separate modes show a re
 
 Conclusion
 The program demonstrates process creation, independent address spaces, lifecycle states, and synchronization through a wait.
-
-Viva practice
-Q. What does fork return?
-A. 0 to the child, the child's PID to the parent, and -1 to the caller on failure.
-
-Q. Why fflush before fork?
-A. Any pending stdio buffer is copied by fork. Flushing prevents two copies of the prompt.
-
-Q. Who adopts an orphan?
-A. A Linux subreaper can adopt it, or the init process for its PID namespace.
-
-Q. Why do zombies matter?
-A. The child no longer runs, but its exit information occupies a process-table entry until collected.
 END_WRITE_PAPER_2
             ;;
         3)
@@ -1393,19 +1703,6 @@ Produced:1 through Produced:6 and Consumed:1 through Consumed:6. The two groups 
 
 Conclusion
 Counting semaphores enforce buffer limits and a mutex protects the shared data. Circular indexing safely reuses slots.
-
-Viva practice
-Q. Can a mutex replace both semaphores?
-A. It protects a shared operation, but does not count items or free slots. The threads would still need a way to wait for those conditions.
-
-Q. What does sem_wait do at zero?
-A. It blocks until a permit is available. With a positive count it takes one permit.
-
-Q. Why use i % 5?
-A. It wraps position 5 back to slot 0 so the sixth item can reuse the first slot safely.
-
-Q. Why wait before locking?
-A. A blocked thread should leave the mutex available so the other thread can change the buffer.
 END_WRITE_PAPER_3
             ;;
         4)
@@ -1442,16 +1739,6 @@ Philosophers continue making progress and adjacent philosophers cannot use the s
 
 Conclusion
 The room limit prevents circular wait in this arrangement. It does not promise that every waiting thread is scheduled fairly.
-
-Viva practice
-Q. How can deadlock occur with five permits?
-A. Each philosopher can hold their left fork and wait forever for the right fork held by a neighbor.
-
-Q. Does deadlock freedom imply starvation freedom?
-A. No. A particular philosopher could repeatedly lose access even while other philosophers complete meals.
-
-Q. Which deadlock condition is broken?
-A. The four-person room limit prevents a circular wait across all five forks in this acquisition order.
 END_WRITE_PAPER_4
             ;;
         5)
@@ -1488,16 +1775,6 @@ The sample is SAFE. Safe Execution Sequence: P0 -> P1 -> P2 -> P3.
 
 Conclusion
 The safety check decides whether the operating system can guarantee completion for the declared maximum claims.
-
-Viva practice
-Q. Is unsafe the same as deadlocked?
-A. No. Unsafe means a safe completion order cannot be guaranteed for the stated maximum claims.
-
-Q. Why add Allocation rather than Max to Work?
-A. The remaining Need was hypothetically borrowed from Work and returned. The net gain is only the resources that were already allocated.
-
-Q. Does this program grant a new request?
-A. It implements the safety check. A full Banker implementation tentatively applies a request, checks safety, then grants it or rolls it back.
 END_WRITE_PAPER_5
             ;;
         6)
@@ -1537,19 +1814,6 @@ The report shows the text, 45 characters, 8 words, and 1 line. This example uses
 
 Conclusion
 Two one-directional FIFO channels allow a request and response between separate processes.
-
-Viva practice
-Q. What is the difference between a FIFO and a regular file?
-A. A FIFO is a stream carried by the kernel. The pathname identifies the channel, but bytes are not stored like normal file contents.
-
-Q. Why two FIFOs?
-A. Each provides one direction in this design and keeps the request stream separate from the reply.
-
-Q. Why does opening a FIFO sometimes appear to hang?
-A. A blocking read or write open waits for the other endpoint to open the same FIFO.
-
-Q. What is a word here?
-A. One contiguous run of non-whitespace bytes. A punctuation mark next to a letter stays in that word.
 END_WRITE_PAPER_6
             ;;
         7)
@@ -1587,16 +1851,6 @@ The parent displays Hello from a pipe. between the output headers. Relative path
 
 Conclusion
 The two inherited pipes carry a request and its data between related processes. Draining the reply before waiting prevents a large-file block.
-
-Viva practice
-Q. What is a file descriptor?
-A. A small process-local integer representing an open file or stream. pipe returns one for each end.
-
-Q. Why drain the pipe before waitpid?
-A. If the parent waits first and the pipe fills, the child blocks while writing and cannot exit.
-
-Q. When does read return zero on the pipe?
-A. Once the buffer is empty and every descriptor referring to its write end has been closed.
 END_WRITE_PAPER_7
             ;;
         8)
@@ -1634,23 +1888,14 @@ Total seek distance: SSTF = 155, SCAN = 331, C-LOOK = 170. The program prints ea
 
 Conclusion
 Different scheduling strategies change both order and movement. SSTF saves movement on this sample, but selection behavior depends on workload.
-
-Viva practice
-Q. How does SCAN differ from LOOK?
-A. SCAN reaches a physical end before reversing in this exercise. LOOK reverses at the last request in that direction.
-
-Q. Could SSTF starve a distant request?
-A. Yes. If nearer requests keep arriving, the distant one may be postponed.
-
-Q. Why does 57 appear twice?
-A. The first 57 is the start position. The second is a request serviced there with zero movement.
-
-Q. Does total seek time mean milliseconds?
-A. Here it is total cylinder movement, used as a simplified measure. Physical seek time is device-dependent.
 END_WRITE_PAPER_8
             ;;
         *) return 1 ;;
     esac
+    printf '\nDetailed walkthrough\n'
+    write_walkthrough "$1"
+    printf '\nViva practice\n'
+    write_viva "$1"
 }
 
 
@@ -1904,110 +2149,268 @@ write_viva() {
     case $1 in
         1)
             cat <<'END_WRITE_VIVA_1'
-1. What is the difference between > and >>?
-> truncates or creates the file. >> appends or creates it.
+Q. What is the difference between > and >>?
+A. > truncates or creates the file. >> appends or creates it.
 
-2. Why quote a filename?
-Quotes keep whitespace and wildcard characters inside one argument.
+Q. Why quote a filename?
+A. Quotes keep whitespace and wildcard characters inside one argument.
 
-3. Why use a temporary file?
-The original remains intact while the updated version is being prepared.
+Q. Why use a temporary file?
+A. The original remains intact while the updated version is being prepared.
+
+Q. Why use IFS= with read -r for a name?
+A. An empty IFS avoids trimming leading or trailing field separators. The
+   -r flag prevents a backslash from being interpreted as an escape.
+
+Q. Why use printf with a fixed format string?
+A. User input is then passed as data to %s. Spaces and percent characters
+   inside a name are written literally.
+
+Q. Why does the program use the name and the field delimiter together?
+A. The delimiter marks the end of the name. Searching just for the start
+   of a name could confuse Ann with Anna or match a different field.
+
+Q. Is this a database with a unique record key?
+A. It is a plain text file keyed by the exact name for edit operations.
+   Duplicate names are possible and are filtered together.
+
+Q. How do you demonstrate persistence?
+A. Insert a contact, exit, restart in the same folder and view the book.
+   The contact is still in addressbook.txt.
 END_WRITE_VIVA_1
             ;;
         2)
             cat <<'END_WRITE_VIVA_2'
-1. What does fork return?
-0 to the child, the child's PID to the parent, and -1 to the caller on failure.
+Q. What does fork return?
+A. 0 to the child, the child's PID to the parent, and -1 to the caller on failure.
 
-2. Why fflush before fork?
-Any pending stdio buffer is copied by fork. Flushing prevents two copies of the prompt.
+Q. Why fflush before fork?
+A. Any pending stdio buffer is copied by fork. Flushing prevents two copies of the prompt.
 
-3. Who adopts an orphan?
-A Linux subreaper can adopt it, or the init process for its PID namespace.
+Q. Who adopts an orphan?
+A. A Linux subreaper can adopt it, or the init process for its PID namespace.
 
-4. Why do zombies matter?
-The child no longer runs, but its exit information occupies a process-table entry until collected.
+Q. Why do zombies matter?
+A. The child no longer runs, but its exit information occupies a process-table entry until collected.
+
+Q. Which branch knows the child's PID immediately after fork()?
+A. The parent. Its return value is the child's PID. The child's return
+   value is 0, so it can call getpid() to print its own PID.
+
+Q. Do the two sorts run on one shared array?
+A. Both see the same initial values but each sees its own address space.
+   Copy-on-write preserves isolation when one writes to a memory page.
+
+Q. Why use waitpid(child, ...) rather than merely sleeping?
+A. It waits for the intended child and collects its status. A fixed delay
+   cannot tell whether the child finished, failed or is still running.
+
+Q. How does WNOWAIT help demonstrate a zombie?
+A. It observes the child's exit while leaving it waitable. waitpid() then
+   collects the exit status so the example does not leave a zombie behind.
+
+Q. If the orphan's PPID changes, does its PID also change?
+A. No. Reparenting changes who supervises it. The same child continues.
 END_WRITE_VIVA_2
             ;;
         3)
             cat <<'END_WRITE_VIVA_3'
-1. Can a mutex replace both semaphores?
-It protects a shared operation, but does not count items or free slots. The threads would still need a way to wait for those conditions.
+Q. Can a mutex replace both semaphores?
+A. It protects a shared operation, but does not count items or free slots. The threads would still need a way to wait for those conditions.
 
-2. What does sem_wait do at zero?
-It blocks until a permit is available. With a positive count it takes one permit.
+Q. What does sem_wait do at zero?
+A. It blocks until a permit is available. With a positive count it takes one permit.
 
-3. Why use i % 5?
-It wraps position 5 back to slot 0 so the sixth item can reuse the first slot safely.
+Q. Why use i % 5?
+A. It wraps position 5 back to slot 0 so the sixth item can reuse the first slot safely.
 
-4. Why wait before locking?
-A blocked thread should leave the mutex available so the other thread can change the buffer.
+Q. Why wait before locking?
+A. A blocked thread should leave the mutex available so the other thread can change the buffer.
+
+Q. What happens if the consumer starts before the producer?
+A. full is 0, so the consumer blocks at its semaphore wait. The producer
+   can still lock the mutex, write the first item and post full.
+
+Q. What happens when all five slots are occupied?
+A. empty is 0. The producer waits until the consumer returns a permit.
+
+Q. Why does the sixth item go to index 0?
+A. The sixth operation uses zero-based index 5, and 5 modulo 5 is 0. Its
+   empty permit guarantees some space and FIFO order makes slot 0 reusable.
+
+Q. Why can the output order differ but the consumed values stay ordered?
+A. Scheduling interleaves the threads differently. Each thread processes
+   its own increasing index and the semaphore order protects availability.
+
+Q. Does sem_post() release the mutex?
+A. No. sem_post() returns a semaphore permit. pthread_mutex_unlock()
+   releases the mutex that protects the shared section.
 END_WRITE_VIVA_3
             ;;
         4)
             cat <<'END_WRITE_VIVA_4'
-1. How can deadlock occur with five permits?
-Each philosopher can hold their left fork and wait forever for the right fork held by a neighbor.
+Q. How can deadlock occur with five permits?
+A. Each philosopher can hold their left fork and wait forever for the right fork held by a neighbor.
 
-2. Does deadlock freedom imply starvation freedom?
-No. A particular philosopher could repeatedly lose access even while other philosophers complete meals.
+Q. Does deadlock freedom imply starvation freedom?
+A. No. A particular philosopher could repeatedly lose access even while other philosophers complete meals.
 
-3. Which deadlock condition is broken?
-The four-person room limit prevents a circular wait across all five forks in this acquisition order.
+Q. Which deadlock condition is broken?
+A. The four-person room limit prevents a circular wait across all five forks in this acquisition order.
+
+Q. What does a semaphore value of 1 mean for a fork?
+A. One philosopher may acquire it. A second must wait until the first
+   posts the permit.
+
+Q. Why is philosopher 5's right fork 1?
+A. The code uses a zero-based index and computes (left + 1) modulo 5.
+   Adding 1 to the displayed index gives fork 1 after fork 5.
+
+Q. Can two philosophers eat at the same time?
+A. Yes, if they use disjoint pairs of forks. Adjacent philosophers share
+   one fork and cannot eat together.
+
+Q. How do deadlock and starvation differ?
+A. Deadlock means the waiting cycle cannot advance. Starvation means one
+   participant waits indefinitely even though others may keep eating.
+
+Q. Why does the program need Ctrl+C?
+A. Each thread runs an infinite demonstration loop, so the normal run
+   has no final iteration or keyboard input.
 END_WRITE_VIVA_4
             ;;
         5)
             cat <<'END_WRITE_VIVA_5'
-1. Is unsafe the same as deadlocked?
-No. Unsafe means a safe completion order cannot be guaranteed for the stated maximum claims.
+Q. Is unsafe the same as deadlocked?
+A. No. Unsafe means a safe completion order cannot be guaranteed for the stated maximum claims.
 
-2. Why add Allocation rather than Max to Work?
-The remaining Need was hypothetically borrowed from Work and returned. The net gain is only the resources that were already allocated.
+Q. Why add Allocation rather than Max to Work?
+A. The remaining Need was hypothetically borrowed from Work and returned. The net gain is only the resources that were already allocated.
 
-3. Does this program grant a new request?
-It implements the safety check. A full Banker implementation tentatively applies a request, checks safety, then grants it or rolls it back.
+Q. Does this program grant a new request?
+A. It implements the safety check. A full Banker implementation tentatively applies a request, checks safety, then grants it or rolls it back.
+
+Q. Can a process finish if Need equals Work?
+A. Yes. The comparison is Need <= Work in every resource type. It fails
+   only if at least one required amount is larger than what is available.
+
+Q. Why is P2 initially ineligible?
+A. P2 needs 2 units of A but the initial Work vector has only 1 unit of A.
+   After P0 finishes and releases its allocation, more A is available.
+
+Q. Is the printed safe sequence unique?
+A. No. There can be several orders that let every process finish. This
+   implementation returns the one found by its left-to-right scans.
+
+Q. What does a pass with no new Finish flag mean?
+A. Every unfinished process still needs more than Work in at least one
+   resource. Without a completion, Work cannot grow and the state is unsafe.
+
+Q. Are the program's matrices real resource allocations?
+A. They are a fixed snapshot used by the example. The safety simulation
+   updates Work and Finish while leaving the supplied snapshot unchanged.
 END_WRITE_VIVA_5
             ;;
         6)
             cat <<'END_WRITE_VIVA_6'
-1. What is the difference between a FIFO and a regular file?
-A FIFO is a stream carried by the kernel. The pathname identifies the channel, but bytes are not stored like normal file contents.
+Q. What is the difference between a FIFO and a regular file?
+A. A FIFO is a stream carried by the kernel. The pathname identifies the channel, but bytes are not stored like normal file contents.
 
-2. Why two FIFOs?
-Each provides one direction in this design and keeps the request stream separate from the reply.
+Q. Why two FIFOs?
+A. Each provides one direction in this design and keeps the request stream separate from the reply.
 
-3. Why does opening a FIFO sometimes appear to hang?
-A blocking read or write open waits for the other endpoint to open the same FIFO.
+Q. Why does opening a FIFO sometimes appear to hang?
+A. A blocking read or write open waits for the other endpoint to open the same FIFO.
 
-4. What is a word here?
-One contiguous run of non-whitespace bytes. A punctuation mark next to a letter stays in that word.
+Q. What is a word here?
+A. One contiguous run of non-whitespace bytes. A punctuation mark next to a letter stays in that word.
+
+Q. Why use two FIFOs for this design?
+A. fifo1 carries requests from Process 1 to Process 2. fifo2 carries the
+   report back. Separate channels let each pair open the proper endpoints.
+
+Q. What can cause a FIFO open to hang?
+A. A blocking read or write open can wait for the opposite endpoint.
+   The launcher creates both pipes and starts both processes.
+
+Q. How many words are in "one   two"?
+A. Two. Consecutive whitespace clears the in-word flag repeatedly.
+   Only the transition to non-whitespace starts a new word.
+
+Q. Does pressing Enter add a byte to the character count?
+A. No. The line ending used to send the request is removed before the
+   sentence is analyzed.
+
+Q. What happens to earlier analysis reports?
+A. The latest analysis overwrites report.txt. The terminal can still show
+   earlier reports in its scrollback history.
 END_WRITE_VIVA_6
             ;;
         7)
             cat <<'END_WRITE_VIVA_7'
-1. What is a file descriptor?
-A small process-local integer representing an open file or stream. pipe returns one for each end.
+Q. What is a file descriptor?
+A. A small process-local integer representing an open file or stream. pipe returns one for each end.
 
-2. Why drain the pipe before waitpid?
-If the parent waits first and the pipe fills, the child blocks while writing and cannot exit.
+Q. Why drain the pipe before waitpid?
+A. If the parent waits first and the pipe fills, the child blocks while writing and cannot exit.
 
-3. When does read return zero on the pipe?
-Once the buffer is empty and every descriptor referring to its write end has been closed.
+Q. When does read return zero on the pipe?
+A. Once the buffer is empty and every descriptor referring to its write end has been closed.
+
+Q. What does pipe() return through its array?
+A. Two file descriptors. Index 0 is the read end and index 1 is the write end.
+
+Q. Why create both pipes before fork()?
+A. The child inherits both sets of open descriptors and can use them to
+   communicate with the parent without a filesystem name.
+
+Q. Why is the pathname sent with a NUL byte?
+A. The child uses that byte as the message delimiter and can then pass
+   the resulting C string to open().
+
+Q. Can read() or write() handle fewer bytes than requested?
+A. Yes. read() reports the bytes it received. write_all() advances by
+   the amount written and keeps going until the chunk is sent or fails.
+
+Q. Which side must drain data before calling waitpid()?
+A. The parent. If it waits while pipe2 is full, the child cannot finish
+   writing and neither side can advance.
 END_WRITE_VIVA_7
             ;;
         8)
             cat <<'END_WRITE_VIVA_8'
-1. How does SCAN differ from LOOK?
-SCAN reaches a physical end before reversing in this exercise. LOOK reverses at the last request in that direction.
+Q. How does SCAN differ from LOOK?
+A. SCAN reaches a physical end before reversing in this exercise. LOOK reverses at the last request in that direction.
 
-2. Could SSTF starve a distant request?
-Yes. If nearer requests keep arriving, the distant one may be postponed.
+Q. Could SSTF starve a distant request?
+A. Yes. If nearer requests keep arriving, the distant one may be postponed.
 
-3. Why does 57 appear twice?
-The first 57 is the start position. The second is a request serviced there with zero movement.
+Q. Why does 57 appear twice?
+A. The first 57 is the start position. The second is a request serviced there with zero movement.
 
-4. Does total seek time mean milliseconds?
-Here it is total cylinder movement, used as a simplified measure. Physical seek time is device-dependent.
+Q. Does total seek time mean milliseconds?
+A. Here it is total cylinder movement, used as a simplified measure. Physical seek time is device-dependent.
+
+Q. Is the first 57 in the path a serviced request?
+A. The first number shows the starting head position. The following 57
+   is a request at that position and adds zero movement.
+
+Q. Why can C-LOOK travel farther than SSTF for a particular input?
+A. C-LOOK follows a directional ordering. SSTF makes a locally shortest
+   choice each time. The total depends on the request distribution.
+
+Q. Where does SCAN reverse in this program?
+A. It travels toward the highest cylinder first and reverses at the given
+   physical maximum. C-LOOK jumps from the highest queued position in
+   its pass to the lowest remaining request.
+
+Q. How is total movement calculated for C-LOOK?
+A. Add the absolute difference between adjacent printed positions. This
+   program includes the wrap from 102 to 10, which contributes 92.
+
+Q. Why could SSTF starve far-away requests in a live system?
+A. If nearby requests keep arriving, a distant request may repeatedly lose
+   the next selection. The finite classroom input eventually runs out.
 END_WRITE_VIVA_8
             ;;
         *) return 1 ;;
@@ -3396,7 +3799,7 @@ quote_command() {
 open_terminal() {
     local title=$1 folder=$2
     shift 2
-    local executable terminal child delay shell_command directory
+    local executable terminal child shell_command directory pane source_command
     local -a flags args=("$BASH" "$script_path" "$@")
     directory=--working-directory=$folder
     shell_command=$(quote_command "${args[@]}")
@@ -3424,8 +3827,16 @@ open_terminal() {
         done
     fi
     if [[ -n ${TMUX:-} ]] && command -v tmux >/dev/null; then
-        tmux new-window -c "$folder" -n "$title" "$shell_command" >/dev/null 2>&1
-        return $?
+        pane=$(tmux new-window -P -F '#{pane_id}' -c "$folder" -n "$title" "$shell_command" 2>/dev/null) ||
+            return 1
+        if [[ $1 == --child ]]; then
+            source_command=$(quote_command "$BASH" "$script_path" --view "$2")
+            if ! tmux split-window -d -h -t "$pane" -c "$folder" "$source_command" >/dev/null 2>&1; then
+                tmux split-window -d -v -t "$pane" -c "$folder" "$source_command" >/dev/null 2>&1 ||
+                    printf '  Source saved. This tmux window is too small for a source pane.\n' >&2
+            fi
+        fi
+        return 0
     fi
     return 1
 }
@@ -3451,6 +3862,43 @@ open_editor() {
         return 0
     fi
     return 1
+}
+
+view_saved_source() {
+    local number=$1 mode=$2 file editor
+    local -a files=()
+    while IFS= read -r file; do files+=("./$file"); done < <(practical_sources "$number")
+    if [[ -t 0 && -t 1 ]]; then
+        if [[ $mode == edit ]]; then
+            for editor in nano vim vi; do
+                if command -v "$editor" >/dev/null; then
+                    "$editor" "${files[@]}"
+                    return
+                fi
+            done
+        fi
+        if command -v less >/dev/null; then
+            less -N -- "${files[@]}"
+            return
+        fi
+    fi
+    for file in "${files[@]}"; do
+        printf '\n--- %s ---\n' "${file#./}"
+        cat -- "$file"
+    done
+}
+
+single_terminal_choices() {
+    local number=$1 mode=$2 folder=$3 reply
+    while :; do
+        printf '\n  [R] Run here   [V] View saved source   [0] Back\n'
+        read_answer 'Choose > ' || return 0
+        case ${reply,,} in
+            r) (cd -- "$folder" && run_prepared "$number" "$mode"); return ;;
+            v) (cd -- "$folder" && view_saved_source "$number" view) ;;
+            0|'') return 0 ;;
+        esac
+    done
 }
 
 report_native_failure() {
@@ -3499,21 +3947,21 @@ start_practical() {
     saved=$(practical_sources "$number")
     printf '\n  Saved  %s\n' "${saved//$'\n'/, }"
     [[ $prepared_dir == "$PWD" ]] || printf '  Folder  %s\n' "$prepared_dir"
-    if [[ $style != here ]]; then
-        if open_editor "$prepared_dir" "$number"; then
-            printf "  Opening the source in the text editor.\n"
-        else
-            printf "  No desktop editor found. Your source is saved.\n"
-        fi
+    if [[ $style != here ]] && open_editor "$prepared_dir" "$number"; then
+        printf '  Opening the source in the text editor.\n'
     fi
     if [[ $style == here ]]; then
         (cd -- "$prepared_dir" && run_prepared "$number" "$mode")
     elif open_terminal "OS Practical $number" "$prepared_dir" --child "$number" "$mode"; then
         printf '  Practical %s opened in a separate terminal.\n' "$number"
     else
-        printf '  Could not open a separate terminal. The source files are saved.\n' >&2
-        printf '  Open the assistant from the Ubuntu desktop Terminal or within an existing tmux session.\n' >&2
-        return 1
+        printf '  This session could not open a second terminal. Your source is saved.\n' >&2
+        if [[ $style == menu ]]; then
+            single_terminal_choices "$number" "$mode" "$prepared_dir"
+        else
+            printf '  Open the assistant menu for the Run here and View saved source options.\n' >&2
+            return 1
+        fi
     fi
 }
 
@@ -3630,7 +4078,9 @@ explain() {
     local -a requests names
     mapfile -t names < <(practical_sources "$number")
     case $raw in
-        topics|overview|concepts) write_topics "$number"; return ;;
+        topics|concepts) write_topics "$number"; return ;;
+        overview|walkthrough|sample) write_walkthrough "$number"; return ;;
+        paper) write_paper "$number"; return ;;
         viva|questions) write_viva "$number"; return ;;
         source|code) for name in "${names[@]}"; do
             printf '\n%s\n' "$name"; write_source "$name" | nl -ba
@@ -3697,7 +4147,7 @@ explain() {
 study_menu() {
     local number=$1 reply query
     printf '\nPractical %s  %s\n' "$number" "${titles[number]}"
-    printf '%s\n' 'Try topics, viva, source, or a question about the practical.' \
+    printf '%s\n' 'Try walkthrough, topics, viva, source, paper, or a question.' \
         'For code, enter 10-18 or a filename and range. Use paste for several lines.'
     while read_answer 'Explain (0 = back) > ' && [[ $reply != 0 ]]; do
         query=$(expanded_query "$reply")
@@ -3713,7 +4163,12 @@ error_help() {
     [[ $reply != 0 ]] || return
     query=$(expanded_query "$reply")
     case ${query,,} in
-        [1-8]) write_practical_help "$query"; write_manual "$query"; return ;;
+        [1-8])
+            write_practical_help "$query"
+            write_manual "$query"
+            printf '\nChecks and walkthrough\n'
+            write_walkthrough "$query"
+            return ;;
         ubuntu|linux|lab|*'wsl'*) topic=ubuntu ;;
         compiler|gcc|*'gcc'*|*'clang'*|*'undefined reference'*|*'-std='*|*'no linux tool'*) topic=gcc ;;
         files|*'permission denied'*|*'no space left'*|*'read-only'*|*'no such file'*|*'could not open'*) topic=files ;;
@@ -3805,7 +4260,7 @@ run_menu() {
             [1-8]) number=$reply ;;
             *) continue ;;
         esac
-        start_practical "$number" "$mode" separate
+        start_practical "$number" "$mode" menu
         return
     done
 }
@@ -3852,6 +4307,13 @@ case ${1:-} in
             open_terminal 'OS Practicals' "$(dirname -- "$script_path")" --menu
             exit $?
         fi
+        if [[ -t 0 && -t 1 && -z ${DISPLAY:-}${WAYLAND_DISPLAY:-}${TMUX:-} ]] &&
+            command -v tmux >/dev/null; then
+            menu_command=$(quote_command "$BASH" "$script_path" --menu)
+            if tmux new-session -c "$PWD" -n 'OS Practicals' "$menu_command"; then
+                exit 0
+            fi
+        fi
         main_menu ;;
     --menu) main_menu ;;
     --help|-h) usage ;;
@@ -3859,6 +4321,9 @@ case ${1:-} in
     --paper)
         if [[ ${2:-} =~ ^[1-8]$ ]]; then write_paper "$2"; else usage; exit 2; fi ;;
     --self-test) self_test ;;
+    --view)
+        if [[ ! ${2:-} =~ ^[1-8]$ ]]; then exit 2; fi
+        view_saved_source "$2" edit ;;
     --child|--native)
         if [[ ! ${2:-} =~ ^[1-8]$ ]]; then exit 2; fi
         if [[ $1 == --native ]]; then run_native "$2" "${3:-normal}"; exit $?; fi
