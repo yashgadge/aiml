@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+_dsa_cr=; while IFS= read -r _dsa_line || [[ -n $_dsa_line ]]; do if [[ $_dsa_line == *$'\r' ]]; then _dsa_cr=1; break; fi; done < "$0"; if [[ -n $_dsa_cr ]]; then _dsa_clean=$(mktemp "${TMPDIR:-/tmp}/dsa-normalized.XXXXXXXX.sh") || { printf 'Cannot repair line endings: check the temporary folder and free space. Missing mktemp? Run: sudo apt install coreutils\n' >&2; exit 1; }; _dsa_ok=1; while IFS= read -r _dsa_line || [[ -n $_dsa_line ]]; do printf '%s\n' "${_dsa_line%$'\r'}" || { _dsa_ok=0; break; }; done < "$0" > "$_dsa_clean"; if [[ $_dsa_ok != 1 ]]; then printf 'Cannot write the normalized launcher. Check disk space and permissions.\n' >&2; rm -f -- "$_dsa_clean"; exit 1; fi; "$BASH" "$_dsa_clean" "$@"; _dsa_status=$?; rm -f -- "$_dsa_clean"; exit "$_dsa_status"; fi # Keep this recovery command on one line; this comment absorbs a Windows CR.
+
+#!/usr/bin/env bash
 # Self-contained Ubuntu / Git Bash on Windows launcher. No installations.
 
 show_command() {
@@ -279,7 +282,13 @@ def help_error(message, stage='execution', source=None):
     lower = text.lower()
     print('Help:', flush=True)
     missing = re.search(r"no module named ['\"]([^'\"]+)", text, re.I)
-    if ('command not found' in lower or 'not recognized' in lower) and any(x in lower for x in ('g++', 'gcc', 'clang')):
+    if ('\\r' in text or '^m' in lower) and any(x in lower for x in ('command not found','syntax error','bad interpreter')):
+        print('Windows CRLF line endings are being read by Bash. Use the updated dsa.sh or repair this copy on Ubuntu:')
+        print(r"sed -i '1s/^\xEF\xBB\xBF//; s/\r$//' dsa.sh")
+        print('Then run: bash dsa.sh')
+    elif 'bom' in lower or '\ufeff' in text:
+        print('Save the script as UTF-8 without BOM, or run: bash repair-dsa.sh dsa.sh')
+    elif ('command not found' in lower or 'not recognized' in lower) and any(x in lower for x in ('g++', 'gcc', 'clang')):
         compiler_help()
     elif ('command not found' in lower or 'not recognized' in lower) and 'python' in lower:
         print('Install/repair Python 3 for Windows and reopen Git Bash.' if windows_host() else 'Missing Python 3.\nRun: sudo apt install python3\nThen start the launcher again.')
