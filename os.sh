@@ -2414,20 +2414,70 @@ END_WRITE_VIVA_8
 
 
 write_manual() {
+    printf '\nPractical %s  %s\n' "$1" "${titles[$1]}"
+    printf '%s\n' 'Run these commands in the folder where you save the source.' \
+        'pwd shows the current folder. ls lists its files.' \
+        'nano opens or creates a text file. Paste the code, press Ctrl+O, Enter, then Ctrl+X.' \
+        'If nano is missing: sudo apt install nano'
+    if [[ $1 != 1 ]]; then
+        printf '%s\n' 'If the C compiler is missing: sudo apt install build-essential'
+    fi
     case $1 in
         1)
             cat <<'END_WRITE_MANUAL_1'
-Manual run
+Create or open the shell script:
+  nano practical1.sh
+The .sh file contains the Bash address-book program.
+
+Run the shell script:
 bash practical1.sh
+This starts Bash and executes the saved file.
+
+Alternative way to run the same script:
+  chmod +x practical1.sh
+  ./practical1.sh
+chmod gives the file execute permission. ./ runs the file in this folder.
+Use either this pair or bash practical1.sh.
+
+Show the saved code:
+  cat practical1.sh
+Show the saved contacts:
+  cat addressbook.txt
+The contacts file appears after Create or Insert.
 
 Sample
 Choose 1, then 3. Enter Asha Patil, 9876543210, and Pune on separate lines. Then choose 2.
+Menu operations:
+  1 Create - creates an empty book and clears existing records.
+  2 View - displays the book.
+  3 Insert - adds name, phone and city.
+  4 Delete - removes the exact name.
+  5 Modify - replaces the exact name.
+  6 Exit - closes the program.
 END_WRITE_MANUAL_1
             ;;
         2)
             cat <<'END_WRITE_MANUAL_2'
-Manual run
-gcc practical2.c -o practical2 && ./practical2
+Create or open the C source:
+  nano practical2.c
+Compile once:
+  gcc practical2.c -o practical2
+This creates the executable practical2.
+
+Parent and child sorting:
+  ./practical2
+Enter a count and the integers. Both processes print the sorted values.
+
+Zombie demonstration:
+  ./practical2 zombie
+The child exits, its exit is observed, and the parent reaps it.
+
+Orphan demonstration:
+  ./practical2 orphan
+A live child prints its old and new parent process IDs after reparenting.
+
+Show the saved code:
+  cat practical2.c
 
 Sample
 Enter 6, then 2 9 7 5 6 1. Run the optional zombie and orphan modes separately.
@@ -2435,8 +2485,16 @@ END_WRITE_MANUAL_2
             ;;
         3)
             cat <<'END_WRITE_MANUAL_3'
-Manual run
-gcc practical3.c -pthread -o practical3 && ./practical3
+Create or open the C source:
+  nano practical3.c
+Compile with thread support:
+  gcc practical3.c -pthread -o practical3
+Run:
+  ./practical3
+The producer and consumer handle items 1 through 6 automatically.
+There is no keyboard input. The two threads' output may interleave.
+Show the saved code:
+  cat practical3.c
 
 Sample
 No input. Run the program once.
@@ -2444,8 +2502,18 @@ END_WRITE_MANUAL_3
             ;;
         4)
             cat <<'END_WRITE_MANUAL_4'
-Manual run
-gcc practical4.c -pthread -o practical4 && ./practical4
+Create or open the C source:
+  nano practical4.c
+Compile with thread support:
+  gcc practical4.c -pthread -o practical4
+Run:
+  ./practical4
+Five philosophers repeatedly think, acquire forks, and eat.
+Stop the demonstration:
+  Press Ctrl+C.
+There is no keyboard input. This program keeps running until stopped.
+Show the saved code:
+  cat practical4.c
 
 Sample
 No input. Let it run until you see THINKING, picked LEFT/RIGHT fork, EATING and finished EATING.
@@ -2453,8 +2521,16 @@ END_WRITE_MANUAL_4
             ;;
         5)
             cat <<'END_WRITE_MANUAL_5'
-Manual run
-gcc practical5.c -o practical5 && ./practical5
+Create or open the C source:
+  nano practical5.c
+Compile:
+  gcc practical5.c -o practical5
+Run:
+  ./practical5
+The fixed resource matrices produce the safe sequence P0 -> P1 -> P2 -> P3.
+There is no keyboard input or separate command-line mode.
+Show the saved code and matrices:
+  cat practical5.c
 
 Sample
 No keyboard input. The code uses four processes, three resource types, and Available = (1, 1, 1).
@@ -2462,10 +2538,33 @@ END_WRITE_MANUAL_5
             ;;
         6)
             cat <<'END_WRITE_MANUAL_6'
-Manual run
-Terminal 1: gcc process1.c -o process1 && gcc process2.c -o process2 && mkfifo fifo1 fifo2 && ./process2
-Terminal 2, in the same folder: ./process1
-Create the FIFOs once. If they already exist as FIFOs, start ./process2 directly after compiling.
+Create and save both source files:
+  nano process1.c
+  nano process2.c
+Process 1 accepts a sentence. Process 2 analyzes it and sends the report back.
+
+Terminal 1 - compile both programs:
+  gcc process1.c -o process1
+  gcc process2.c -o process2
+Create the two named pipes once:
+  mkfifo fifo1 fifo2
+If they already exist, check them:
+  ls -l fifo1 fifo2
+Both should start with p, which identifies a FIFO.
+Start the receiver:
+  ./process2
+It waits for Process 1.
+
+Terminal 2 - open the same source folder:
+  ./process1
+Enter a sentence at its prompt. Type exit to finish both processes.
+If the folders differ, use pwd in Terminal 1 and cd to that folder in Terminal 2.
+
+After the programs finish, view the last report:
+  cat report.txt
+Show either source:
+  cat process1.c
+  cat process2.c
 
 Sample
 Enter Hello world! This is a FIFO full-duplex test. Then enter exit.
@@ -2473,8 +2572,24 @@ END_WRITE_MANUAL_6
             ;;
         7)
             cat <<'END_WRITE_MANUAL_7'
-Manual run
-gcc practical7.c -o practical7 && ./practical7
+Create or open the C source:
+  nano practical7.c
+Compile:
+  gcc practical7.c -o practical7
+Create a sample text file:
+  printf 'Hello from a pipe.\n' > test.txt
+Run:
+  ./practical7
+At the pathname prompt, type test.txt and press Enter.
+The child reads the file and the parent prints the content received by pipe.
+
+Missing-file demonstration:
+  ./practical7
+At the pathname prompt, type missing.txt, assuming that file does not exist.
+The program displays its file-open error response.
+Show the sample file and code:
+  cat test.txt
+  cat practical7.c
 
 Sample
 Create test.txt with printf 'Hello from a pipe.\n' > test.txt and enter test.txt at the program prompt.
@@ -2482,8 +2597,16 @@ END_WRITE_MANUAL_7
             ;;
         8)
             cat <<'END_WRITE_MANUAL_8'
-Manual run
-gcc practical8.c -o practical8 && ./practical8
+Create or open the C source:
+  nano practical8.c
+Compile:
+  gcc practical8.c -o practical8
+Run all three algorithms:
+  ./practical8
+Enter the count, request queue, head position and maximum cylinder.
+One run displays SSTF, SCAN and C-LOOK. There are no separate mode commands.
+Show the saved code:
+  cat practical8.c
 
 Sample
 Enter 8. Queue: 25 65 43 98 57 89 102 10. Head: 57. Maximum cylinder: 199.
@@ -4051,6 +4174,7 @@ explain() {
     local -a requests names
     mapfile -t names < <(practical_sources "$number")
     case $raw in
+        commands|command) write_manual "$number"; return ;;
         topics|concepts) write_topics "$number"; return ;;
         overview|walkthrough|sample) write_walkthrough "$number"; return ;;
         paper) write_paper "$number"; return ;;
@@ -4280,19 +4404,26 @@ main_menu() {
     local reply action
     printf '\nOS PRACTICALS ASSISTANT\nFolder  %s\n' "$PWD"
     while :; do
-        printf '\n  [1] Run a practical\n  [2] Paper write-up\n  [3] Code explainer and viva\n  [0] Exit\n'
+        printf '\n  [1] Run a practical\n  [2] Paper write-up\n  [3] Code explainer and viva\n  [4] Practical commands\n  [0] Exit\n'
         read_answer 'Choose > ' || return 0
         action=$reply
         case $action in
             0) return 0 ;;
             1) run_menu ;;
-            2|3)
-                if [[ $action == 2 ]]; then show_practicals 'Paper write-up'
-                else show_practicals 'Code explainer and viva'; fi
+            2|3|4)
+                case $action in
+                    2) show_practicals 'Paper write-up' ;;
+                    3) show_practicals 'Code explainer and viva' ;;
+                    4) show_practicals 'Practical commands' ;;
+                esac
                 printf '\n  [0] Back\n'
                 read_answer 'Choose > ' || return 0
                 if [[ $reply =~ ^[1-8]$ ]]; then
-                    if [[ $action == 2 ]]; then write_paper "$reply"; else study_menu "$reply"; fi
+                    case $action in
+                        2) write_paper "$reply" ;;
+                        3) study_menu "$reply" ;;
+                        4) write_manual "$reply" ;;
+                    esac
                 fi ;;
         esac
     done
